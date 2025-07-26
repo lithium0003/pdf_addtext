@@ -1,3 +1,5 @@
+[English](README.md)
+
 # pdf_addtext
 jpeg画像と、OCR処理結果のjsonファイルから、透明テキストを埋め込んだPDFファイルを作成します。
 
