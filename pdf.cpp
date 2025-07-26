@@ -335,6 +335,9 @@ std::shared_ptr<PageObject> pdf_file::add_image(const std::string &jpgname, cons
     std::map<std::string, int> charmap;
     std::map<int, std::string> reversemap;
     int count = 1;
+    std::string space_str(" ");
+    reversemap[count] = space_str;
+    charmap[space_str] = count++;
     for(const auto b: box) {
         if(charmap.count(b.text) > 0) {
             continue;
@@ -373,9 +376,14 @@ std::shared_ptr<PageObject> pdf_file::add_image(const std::string &jpgname, cons
         ss << std::dec << std::fixed;
         float w = 0;
         float h = 0;
+        int boxcount = 0;
         for(const auto &b: line) {
             w = std::max(w, b.w);
             h = std::max(h, b.h);
+            boxcount++;
+            if(b.subidx > 0 && b.space > 0) {
+                boxcount++;
+            }
         }
         auto b1 = line.front();
         auto b2 = line.back();
@@ -410,10 +418,10 @@ std::shared_ptr<PageObject> pdf_file::add_image(const std::string &jpgname, cons
                 th = 0;
             }
             else {
-                th = atan2(p2y - p1y, p2x - p1x);
+                th = -atan2(p2y - p1y, p2x - p1x);
             }
         }
-        s /= line.size();
+        s /= boxcount;
         if(b1.vertical) {
             s /= h;
         }
@@ -459,6 +467,9 @@ std::shared_ptr<PageObject> pdf_file::add_image(const std::string &jpgname, cons
         auto prevfill = ss.fill();
         ss.fill('0');
         for(const auto &b: line) {
+            if(b.subidx > 0 && b.space > 0) {
+                ss << std::setw(4) << std::hex << charmap[space_str];
+            }
             ss << std::setw(4) << std::hex << charmap[b.text];
         }
         ss.fill(prevfill);
