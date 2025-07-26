@@ -343,8 +343,20 @@ class dictionary_object: public direct_object {
         }
 
         void add(const std::string &key, std::shared_ptr<object> value) {
-            _keys.emplace_back(key);
-            _value.push_back(value);
+            int i = -1;
+            for(int j = 0; j < _keys.size(); j++) {
+                if(_keys[j].get_value() == key) {
+                    i = j;
+                    break;
+                }
+            }
+            if(i < 0) {
+                _keys.emplace_back(key);
+                _value.push_back(value);
+            }
+            else {
+                _value[i] = value;
+            }
         }
 
         std::string output() const override {
@@ -556,6 +568,7 @@ class pdf_file {
     private:
         std::string header = "%PDF-1.3";
         std::vector<std::shared_ptr<object>> body;
+        dictionary_object trailer;
         std::shared_ptr<object> root;
         std::shared_ptr<object> pages;
         std::shared_ptr<object> cidFontType0Object;

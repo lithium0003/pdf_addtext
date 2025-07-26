@@ -111,6 +111,7 @@ pdf_file::pdf_file()
     root = add_object(std::shared_ptr<object>(new RootObject()));
     pages = add_object(std::shared_ptr<object>(new PagesObject()));
     root->cast<indirect_object>()->follow<RootObject>()->add_pages(pages);
+    trailer.add("Root", root);
 
     prepare_font();
 }
@@ -157,6 +158,7 @@ std::shared_ptr<PageObject> pdf_file::new_page()
 
 std::shared_ptr<object> pdf_file::add_object(std::shared_ptr<object> obj) {
     body.emplace_back(new indirect_object(body.size()+1, 0, obj));
+    trailer.add("Size", std::shared_ptr<object>(new integer_number(body.size()+1)));
     return body.back();
 }
 
@@ -183,13 +185,8 @@ std::string pdf_file::dump() const
         content += ss.str() + " 00000 n\r\n";
     }
 
-    std::map<name_object, std::shared_ptr<object>> trailer;
-    trailer[name_object("Size")] = std::shared_ptr<object>(new integer_number(body.size()+1));
-    trailer[name_object("Root")] = root;
-    dictionary_object dict(trailer);
-
     content += "trailer\r\n";
-    content += dict.dump();
+    content += trailer.dump();
     content += "\r\nstartxref\r\n";
     content += std::to_string(cross_reference_offset) + "\r\n";
     content += "%%EOF\r\n";
