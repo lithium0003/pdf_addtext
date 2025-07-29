@@ -7,6 +7,8 @@ struct charbox {
     float cy;
     float w;
     float h;
+    bool ruby;
+    bool rubybase;
     bool vertical;
     bool space;
     int blockidx;

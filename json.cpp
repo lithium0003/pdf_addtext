@@ -394,11 +394,6 @@ std::vector<charbox> read_boxes(const std::string &filename)
             auto box = dynamic_cast<json_dict*>((*array)[i].get());
             if(!box) return {};
             
-            // skip ruby
-            auto pruby = dynamic_cast<json_number*>((*box)["ruby"].get());
-            int ruby = (ruby) ? pruby->value : 0;
-            if(ruby > 0) continue;
-
             auto pcx = dynamic_cast<json_number*>((*box)["cx"].get());
             float cx = (pcx) ? pcx->value : 0;
             auto pcy = dynamic_cast<json_number*>((*box)["cy"].get());
@@ -407,6 +402,10 @@ std::vector<charbox> read_boxes(const std::string &filename)
             float w = (pw) ? pw->value : 0;
             auto ph = dynamic_cast<json_number*>((*box)["h"].get());
             float h = (ph) ? ph->value : 0;
+            auto pruby = dynamic_cast<json_number*>((*box)["ruby"].get());
+            bool ruby = (pruby) ? pruby->value != 0 : false;
+            auto prubybase = dynamic_cast<json_number*>((*box)["rubybase"].get());
+            bool rubybase = (prubybase) ? prubybase->value != 0 : false;
             auto pvertical = dynamic_cast<json_number*>((*box)["vertical"].get());
             bool vertical = (pvertical) ? pvertical->value != 0 : false;
             auto pspace = dynamic_cast<json_number*>((*box)["space"].get());
@@ -420,7 +419,7 @@ std::vector<charbox> read_boxes(const std::string &filename)
             auto ptext = dynamic_cast<json_string*>((*box)["text"].get());
             std::string text = (ptext) ? ptext->value : "";
             
-            ret.push_back({ cx, cy, w, h, vertical, space, blockidx, lineidx, subidx, text });
+            ret.push_back({ cx, cy, w, h, ruby, rubybase, vertical, space, blockidx, lineidx, subidx, text });
         }
 
         std::sort(ret.begin(), ret.end(), [](auto a, auto b){

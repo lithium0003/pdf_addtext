@@ -375,6 +375,7 @@ std::shared_ptr<PageObject> pdf_file::add_image(const std::string &jpgname, cons
     int blockidx = -1;
     int lineidx = -1;
     for(const auto b: box) {
+        if(b.ruby) continue;
         if(b.blockidx != blockidx || b.lineidx != lineidx) {
             blockidx = b.blockidx;
             lineidx = b.lineidx;
