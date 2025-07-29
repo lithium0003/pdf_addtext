@@ -9,6 +9,14 @@
 
 #include "pdf.hpp"
 
+int main2(int argc, char **argv)
+{
+    pdf_file pdf(argv[2]);
+    std::ofstream output(argv[1], std::ios::binary);
+    output << pdf.dump();
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
     if(argc <= 2) {
@@ -20,6 +28,7 @@ int main(int argc, char **argv)
     pdf_file pdf;
     for(int i = 2; i < argc; i++) {
         std::string inputname(argv[i]);
+        std::cerr << "input file: " << inputname << std::endl;
         auto pos = inputname.find_last_of('.');
         if(pos != inputname.npos) {
             std::string ext(inputname, pos);

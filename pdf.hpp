@@ -1,3 +1,4 @@
+#pragma once
 #include <fstream>
 #include <iostream>
 #include <sstream>
@@ -128,7 +129,16 @@ class string_object: public direct_object {
 
         std::string debug() const override { 
             std::stringstream ss;
-            ss << _value;
+            for(const auto c: _value) {
+                if(c >= 0x20 && c < 0x7f) {
+                    ss << c;
+                }
+                else {
+                    int value = *(unsigned char *)&c;
+                    char table[] = "0123456789ABCDEF";
+                    ss << "\\u" << table[(value & 0xF0) >> 4] << table[value & 0xF];
+                }
+            }
             return ss.str();
         }
 };
@@ -193,12 +203,10 @@ class literal_string: public string_object {
                 }
                 else {
                     int code = ci;
-                    int c0 = code % 8;
-                    code /= 8;
-                    int c1 = code % 8;
-                    code /= 8;
-                    int c2 = code % 8;
-                    result += '\\';
+                    int c0 = code & 0x07;
+                    int c1 = (code & 0x38) >> 3;
+                    int c2 = (code & 0xc0) >> 6;
+                    result += 0x5c;
                     result += table[c2];
                     result += table[c1];
                     result += table[c0];
@@ -270,6 +278,10 @@ class name_object: public direct_object {
             
             return "/" + result;
         }
+
+        std::string debug() const override { 
+            return "/" + _value;
+        }
 };
 
 class array_object: public direct_object {
@@ -282,7 +294,12 @@ class array_object: public direct_object {
 
         template<typename T>
         T* operator[](std::size_t idx) const {
-            return dynamic_cast<T*>(_value[idx].get());
+            if(idx < _value.size()) {
+                return _value[idx]->cast<T>();
+            }
+            else {
+                return nullptr;
+            }
         }
 
         void add(std::shared_ptr<object> value) {
@@ -291,6 +308,10 @@ class array_object: public direct_object {
 
         void insert(std::size_t idx, std::shared_ptr<object> value) {
             _value.insert(_value.begin()+idx, value);
+        }
+
+        void remove(std::size_t idx) {
+            _value.erase(_value.begin() + idx);
         }
 
         std::string output() const override {
@@ -307,13 +328,13 @@ class array_object: public direct_object {
         std::string debug() const override { 
             std::string result;
             for(int i = 0; i < _value.size(); i++) {
-                std::stringstream buf(_value[i]->output() + "\n");
+                std::stringstream buf(_value[i]->debug() + "\n");
                 std::string s;
                 while(std::getline(buf, s)) {
                     result += " " + s + "\n";
                 }
             }
-            return "[\n" + result + "]\n";
+            return "[\n" + result + "]";
         }
 };
 
@@ -336,7 +357,24 @@ class dictionary_object: public direct_object {
         T* operator[](const std::string key) const {
             for(int i = 0; i < _keys.size(); i++) {
                 if(_keys[i].get_value() == key) {
-                    return dynamic_cast<T*>(_value[i].get());
+                    return _value[i]->cast<T>();
+                }
+            }
+            return nullptr;
+        }
+
+        std::vector<std::string> keys() const {
+            std::vector<std::string> ret;
+            for(const auto &k: _keys) {
+                ret.push_back(k.get_value());
+            }
+            return ret;
+        }
+
+        std::shared_ptr<object> value(const std::string &key) const {
+            for(int i = 0; i < _keys.size(); i++) {
+                if(_keys[i].get_value() == key) {
+                    return _value[i];
                 }
             }
             return nullptr;
@@ -359,6 +397,19 @@ class dictionary_object: public direct_object {
             }
         }
 
+        void remove(const std::string &key) {
+            int i = -1;
+            for(int j = 0; j < _keys.size(); j++) {
+                if(_keys[j].get_value() == key) {
+                    i = j;
+                    break;
+                }
+            }
+            if(i < 0) return;
+            _keys.erase(_keys.begin() + i);
+            _value.erase(_value.begin() + i);
+        }
+
         std::string output() const override {
             std::string result;
             for(int i = 0; i < _keys.size(); i++) {
@@ -375,21 +426,23 @@ class dictionary_object: public direct_object {
         std::string debug() const override { 
             std::string result;
             for(int i = 0; i < _value.size(); i++) {
-                result += " " + _keys[i].debug() + " ";
-                int count = result.size();
+                auto keystr = " " + _keys[i].debug();
+                result += keystr + " ";
                 std::string pad;
                 std::stringstream buf(_value[i]->debug() + "\n");
                 std::string s;
                 while(std::getline(buf, s)) {
                     result += pad + s + "\n";
                     if(pad == "") {
-                        pad = std::string(count+1, ' ');
+                        pad = std::string(keystr.size()+1, ' ');
                     }
                 }
             }
-            return "<<\n" + result + ">>\n";
+            return "<<\n" + result + ">>";
         }
 };
+
+void decode_stream(dictionary_object &dict, std::vector<uint8_t> &stream);
 
 class stream_object: public direct_object {
     protected:
@@ -397,7 +450,7 @@ class stream_object: public direct_object {
         std::vector<uint8_t> _stream;
 
     public:
-        bool zlib_deflate = true;
+        bool zlib_deflate = false;
 
         stream_object() {}
 
@@ -406,6 +459,7 @@ class stream_object: public direct_object {
 
         stream_object(const dictionary_object &dict, const std::vector<uint8_t> &stream)
             : _dict(dict), _stream(stream) {
+            decode_stream(_dict, _stream);
             if(_dict.operator[]<integer_number>("Length") == nullptr) {
                 auto length = _stream.size();
                 _dict.add("Length", std::shared_ptr<object>(new integer_number(length)));
@@ -461,15 +515,35 @@ class indirect_object: public object {
         indirect_object(unsigned int num, unsigned int gen, std::shared_ptr<object> target)
             : _number(num), _generation(gen), _target(target) {}
 
+        indirect_object(unsigned int num)
+            : _number(num), _generation(0), _target(nullptr) {}
+
         template<typename T>
         T* follow() {
             return dynamic_cast<T*>(_target.get());
         }
 
+        bool isLoaded() {
+            return _target != nullptr;
+        }
+
+        void set(std::shared_ptr<object> target) {
+            _target = target;
+        }
+
+        inline unsigned int number() const {
+            return _number;
+        }
+
         std::string dump() const override {
             std::stringstream ss;
             ss << _number << " " << _generation << " obj\r\n";
-            ss << _target->dump();
+            if(_target) {
+                ss << _target->dump();
+            }
+            else {
+                ss << "null";
+            }
             ss << "\r\nendobj\r\n";
             return ss.str();
         }
@@ -481,7 +555,9 @@ class indirect_object: public object {
         }
 
         std::string debug() const override { 
-            return dump();
+            std::stringstream ss;
+            ss << _number << " " << _generation << " R";
+            return ss.str();
         }
 };
 
@@ -567,17 +643,32 @@ class RootObject: public dictionary_object {
 class pdf_file {
     private:
         std::string header = "%PDF-1.3";
-        std::vector<std::shared_ptr<object>> body;
+        std::vector<int> bodyidx;
+        std::vector<std::shared_ptr<indirect_object>> body;
         dictionary_object trailer;
-        std::shared_ptr<object> root;
-        std::shared_ptr<object> pages;
-        std::shared_ptr<object> cidFontType0Object;
+        std::shared_ptr<indirect_object> root;
+        std::shared_ptr<indirect_object> pages;
+        std::shared_ptr<indirect_object> cidFontType0Object;
 
         void prepare_font();
         std::shared_ptr<PageObject> new_page();
-        std::shared_ptr<object> add_object(std::shared_ptr<object> obj);
+        std::shared_ptr<indirect_object> add_object(std::shared_ptr<object> obj);
+        std::shared_ptr<indirect_object> ref_object(int objnum);
+        std::shared_ptr<object> parse_object(std::istream &ss);
+        std::shared_ptr<hexadecimal_string> parse_hexstring(std::istream &ss);
+        std::shared_ptr<literal_string> parse_literal(std::istream &ss);
+        std::shared_ptr<name_object> parse_name(std::istream &ss);
+        std::shared_ptr<object> parse_numeric(std::istream &is, std::istream &ss);
+        std::shared_ptr<array_object> parse_array(std::stringstream &ss);
+        std::shared_ptr<dictionary_object> parse_dictionary(std::stringstream &ss);
+        std::shared_ptr<indirect_object> register_object(std::istream &ss, int obj_num);
+
+        std::shared_ptr<object> encrypt;
+
     public:
         pdf_file();
+        pdf_file(const std::string &filename);
         std::string dump() const;
         std::shared_ptr<PageObject> add_image(const std::string &jpgname, const std::vector<charbox> &box);
 };
+

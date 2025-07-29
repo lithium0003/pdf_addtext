@@ -9,6 +9,7 @@
 class json_object {
     public:
         json_object() {}
+        virtual ~json_object(){}
 
         virtual std::string output() const = 0;
 };

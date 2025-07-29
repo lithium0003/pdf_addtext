@@ -1,4 +1,7 @@
+#include <numeric>
+
 #include "pdf.hpp"
+#include "crypt.hpp"
 
 #include <jpeglib.h>
 #include <zlib.h>
@@ -56,6 +59,16 @@ std::string stream_object::output() const {
         return ss.str();
     }
     else {
+        auto dict = _dict;
+        if(dict.operator[]<integer_number>("Length") == nullptr) {
+            auto length = _stream.size();
+            dict.add("Length", std::shared_ptr<object>(new integer_number(length)));
+        }
+        else {
+            auto length = _stream.size();
+            dict.operator[]<integer_number>("Length")->set_value(length);
+        }
+
         std::stringstream ss;
         ss << _dict.output() << "\r\n";
         ss << "stream\r\n";
@@ -110,7 +123,7 @@ pdf_file::pdf_file()
 {
     root = add_object(std::shared_ptr<object>(new RootObject()));
     pages = add_object(std::shared_ptr<object>(new PagesObject()));
-    root->cast<indirect_object>()->follow<RootObject>()->add_pages(pages);
+    root->follow<RootObject>()->add_pages(pages);
     trailer.add("Root", root);
 
     prepare_font();
@@ -121,44 +134,49 @@ extern std::vector<uint8_t> dummyFont;
 void pdf_file::prepare_font()
 {
     auto dummyFontObject = add_object(std::shared_ptr<object>(new stream_object(dummyFont)));
-    dummyFontObject->cast<indirect_object>()->follow<stream_object>()->get_dict().add("Subtype", std::shared_ptr<object>(new name_object("CIDFontType0C")));
+    dummyFontObject->follow<stream_object>()->get_dict().add("Subtype", std::shared_ptr<object>(new name_object("CIDFontType0C")));
 
     auto fontDescriptorObject = add_object(std::shared_ptr<object>(new dictionary_object()));
-    fontDescriptorObject->cast<indirect_object>()->follow<dictionary_object>()->add("Type", std::shared_ptr<object>(new name_object("FontDescriptor")));
-    fontDescriptorObject->cast<indirect_object>()->follow<dictionary_object>()->add("FontName", std::shared_ptr<object>(new name_object("Dummy")));
-    fontDescriptorObject->cast<indirect_object>()->follow<dictionary_object>()->add("Flags", std::shared_ptr<object>(new integer_number(32)));
-    fontDescriptorObject->cast<indirect_object>()->follow<dictionary_object>()->add("FontBBox", std::shared_ptr<object>(new Rectangle(0,0,1000,1000)));
-    fontDescriptorObject->cast<indirect_object>()->follow<dictionary_object>()->add("ItalicAngle", std::shared_ptr<object>(new integer_number(0)));
-    fontDescriptorObject->cast<indirect_object>()->follow<dictionary_object>()->add("Ascent", std::shared_ptr<object>(new integer_number(72)));
-    fontDescriptorObject->cast<indirect_object>()->follow<dictionary_object>()->add("Descent", std::shared_ptr<object>(new integer_number(0)));
-    fontDescriptorObject->cast<indirect_object>()->follow<dictionary_object>()->add("CapHeight", std::shared_ptr<object>(new integer_number(72)));
-    fontDescriptorObject->cast<indirect_object>()->follow<dictionary_object>()->add("StemV", std::shared_ptr<object>(new integer_number(0)));
-    fontDescriptorObject->cast<indirect_object>()->follow<dictionary_object>()->add("FontFile3", dummyFontObject);
+    fontDescriptorObject->follow<dictionary_object>()->add("Type", std::shared_ptr<object>(new name_object("FontDescriptor")));
+    fontDescriptorObject->follow<dictionary_object>()->add("FontName", std::shared_ptr<object>(new name_object("Dummy")));
+    fontDescriptorObject->follow<dictionary_object>()->add("Flags", std::shared_ptr<object>(new integer_number(32)));
+    fontDescriptorObject->follow<dictionary_object>()->add("FontBBox", std::shared_ptr<object>(new Rectangle(0,0,1000,1000)));
+    fontDescriptorObject->follow<dictionary_object>()->add("ItalicAngle", std::shared_ptr<object>(new integer_number(0)));
+    fontDescriptorObject->follow<dictionary_object>()->add("Ascent", std::shared_ptr<object>(new integer_number(72)));
+    fontDescriptorObject->follow<dictionary_object>()->add("Descent", std::shared_ptr<object>(new integer_number(0)));
+    fontDescriptorObject->follow<dictionary_object>()->add("CapHeight", std::shared_ptr<object>(new integer_number(72)));
+    fontDescriptorObject->follow<dictionary_object>()->add("StemV", std::shared_ptr<object>(new integer_number(0)));
+    fontDescriptorObject->follow<dictionary_object>()->add("FontFile3", dummyFontObject);
 
     cidFontType0Object = add_object(std::shared_ptr<object>(new dictionary_object()));
-    cidFontType0Object->cast<indirect_object>()->follow<dictionary_object>()->add("Type", std::shared_ptr<object>(new name_object("Font")));
-    cidFontType0Object->cast<indirect_object>()->follow<dictionary_object>()->add("Subtype", std::shared_ptr<object>(new name_object("CIDFontType0")));
-    cidFontType0Object->cast<indirect_object>()->follow<dictionary_object>()->add("BaseFont", std::shared_ptr<object>(new name_object("Dummy")));
-    cidFontType0Object->cast<indirect_object>()->follow<dictionary_object>()->add("CIDSystemInfo", std::shared_ptr<object>(new dictionary_object({
+    cidFontType0Object->follow<dictionary_object>()->add("Type", std::shared_ptr<object>(new name_object("Font")));
+    cidFontType0Object->follow<dictionary_object>()->add("Subtype", std::shared_ptr<object>(new name_object("CIDFontType0")));
+    cidFontType0Object->follow<dictionary_object>()->add("BaseFont", std::shared_ptr<object>(new name_object("Dummy")));
+    cidFontType0Object->follow<dictionary_object>()->add("CIDSystemInfo", std::shared_ptr<object>(new dictionary_object({
         {name_object("Registry"), std::shared_ptr<object>(new literal_string("Adobe"))},
         {name_object("Ordering"), std::shared_ptr<object>(new literal_string("Identity"))},
         {name_object("Supplement"), std::shared_ptr<object>(new integer_number(0))},
     })));
-    cidFontType0Object->cast<indirect_object>()->follow<dictionary_object>()->add("FontDescriptor", fontDescriptorObject);
+    cidFontType0Object->follow<dictionary_object>()->add("FontDescriptor", fontDescriptorObject);
 }
 
 std::shared_ptr<PageObject> pdf_file::new_page() 
 {
     auto newpage = std::shared_ptr<PageObject>(new PageObject());
     auto page = add_object(newpage);
-    pages->cast<indirect_object>()->follow<PagesObject>()->add_page(page);
+    pages->follow<PagesObject>()->add_page(page);
     newpage->cast<PageObject>()->set_parent(pages);
     return newpage;
 }
 
-std::shared_ptr<object> pdf_file::add_object(std::shared_ptr<object> obj) {
-    body.emplace_back(new indirect_object(body.size()+1, 0, obj));
-    trailer.add("Size", std::shared_ptr<object>(new integer_number(body.size()+1)));
+std::shared_ptr<indirect_object> pdf_file::add_object(std::shared_ptr<object> obj) {
+    int newidx = 1;
+    for(const auto i: bodyidx) {
+        newidx = std::max(newidx, i+1);
+    }
+    body.emplace_back(new indirect_object(newidx, 0, obj));
+    bodyidx.push_back(newidx);
+    trailer.add("Size", std::shared_ptr<object>(new integer_number(newidx)));
     return body.back();
 }
 
@@ -166,23 +184,34 @@ std::string pdf_file::dump() const
 {
     std::string content;
     std::vector<uint64_t> offsets;
+    int maxidx = 1;
+    for(const auto i: bodyidx) {
+        maxidx = std::max(maxidx, i+1);
+    }
+    offsets.resize(maxidx);
+
     content += header + "\r\n";
     content += "%\xe2\xe3\xcf\xd3\r\n";
     
-    for(const auto &item: body) {
-        offsets.push_back(content.size());
-        content += item->dump();
+    for(int i = 0; i < bodyidx.size(); i++) {
+        offsets[bodyidx[i]] = content.size();
+        content += body[i]->dump();
     }
 
-    uint64_t cross_reference_offset = content.size();
+    size_t cross_reference_offset = content.size();
     content += "xref\r\n";
-    content += "0 " + std::to_string(body.size()+1) + "\r\n";
+    content += "0 " + std::to_string(maxidx) + "\r\n";
     content += "0000000000 65535 f\r\n";
-    for(const auto off: offsets) {
+    for(int i = 1; i < offsets.size(); i++) {
         std::stringstream ss;
         ss.fill('0');
-        ss << std::setw(10) << off;
-        content += ss.str() + " 00000 n\r\n";
+        ss << std::setw(10) << offsets[i];
+        if(offsets[i] > 0) {
+            content += ss.str() + " 00000 n\r\n";
+        }
+        else {
+            content += ss.str() + " 00000 f\r\n";
+        }
     }
 
     content += "trailer\r\n";
@@ -391,14 +420,20 @@ std::shared_ptr<PageObject> pdf_file::add_image(const std::string &jpgname, cons
         float p2x = -1;
         float p2y = -1;
         for(const auto &b: line) {
-            if(std::max(b.w, b.h) > std::max(w, h) * 0.5) {
-                if(p1x < 0) {
-                    p1x = b.cx;
-                    p1y = b.cy;
-                }
-                p2x = b.cx;
-                p2y = b.cy;
+            if(b.text == ".") continue;
+            if(b.text == ",") continue;
+            if(b.text == "'") continue;
+            if(b.text == "\"") continue;
+            if(b.text == "、") continue;
+            if(b.text == "。") continue;
+            if(b.text == "“") continue;
+            if(b.text == "”") continue;
+            if(p1x < 0) {
+                p1x = b.cx;
+                p1y = b.cy;
             }
+            p2x = b.cx;
+            p2y = b.cy;
         }
         if(b1.vertical) {
             s = b2.cy + b2.h / 2 - (b1.cy - b1.h / 2);
@@ -426,8 +461,8 @@ std::shared_ptr<PageObject> pdf_file::add_image(const std::string &jpgname, cons
             s /= w;
         }
         int tz = s * 100;
-        float tx = b1.cx - b1.w / 2;
         if(b1.vertical) {
+            float tx = p1x - w / 2;
             float ty = jpeg->height - (b1.cy - b1.h / 2);
             ss << h * cosf(th);
             ss << " ";
@@ -444,7 +479,8 @@ std::shared_ptr<PageObject> pdf_file::add_image(const std::string &jpgname, cons
             ss << "Tm" << std::endl;
         }
         else {
-            float ty = jpeg->height - (b1.cy + b1.h / 2);
+            float tx = b1.cx - b1.w / 2;
+            float ty = jpeg->height - (p1y + h / 4);
             ss << w * cosf(th);
             ss << " ";
             ss << w * sinf(th);
@@ -481,11 +517,11 @@ std::shared_ptr<PageObject> pdf_file::add_image(const std::string &jpgname, cons
     newpage->operator[]<dictionary_object>("Resources")->add("XObject", dictXObject);
 
     auto type0FontObject = add_object(std::shared_ptr<object>(new dictionary_object()));
-    type0FontObject->cast<indirect_object>()->follow<dictionary_object>()->add("Type", std::shared_ptr<object>(new name_object("Font")));
-    type0FontObject->cast<indirect_object>()->follow<dictionary_object>()->add("Subtype", std::shared_ptr<object>(new name_object("Type0")));
-    type0FontObject->cast<indirect_object>()->follow<dictionary_object>()->add("BaseFont", std::shared_ptr<object>(new name_object("Dummy")));
-    type0FontObject->cast<indirect_object>()->follow<dictionary_object>()->add("Encoding", std::shared_ptr<object>(new name_object("Identity-H")));
-    type0FontObject->cast<indirect_object>()->follow<dictionary_object>()->add("DescendantFonts", std::shared_ptr<object>(new array_object({cidFontType0Object})));
+    type0FontObject->follow<dictionary_object>()->add("Type", std::shared_ptr<object>(new name_object("Font")));
+    type0FontObject->follow<dictionary_object>()->add("Subtype", std::shared_ptr<object>(new name_object("Type0")));
+    type0FontObject->follow<dictionary_object>()->add("BaseFont", std::shared_ptr<object>(new name_object("Dummy")));
+    type0FontObject->follow<dictionary_object>()->add("Encoding", std::shared_ptr<object>(new name_object("Identity-H")));
+    type0FontObject->follow<dictionary_object>()->add("DescendantFonts", std::shared_ptr<object>(new array_object({cidFontType0Object})));
     {
         std::stringstream ss;
         ss << "/CIDInit /ProcSet findresource begin" << std::endl;
@@ -531,11 +567,853 @@ std::shared_ptr<PageObject> pdf_file::add_image(const std::string &jpgname, cons
         std::string str = ss.str();
         std::vector<uint8_t> stream(str.begin(), str.end());
         auto toUnicodeObject = add_object(std::shared_ptr<object>(new stream_object(stream)));        
-        type0FontObject->cast<indirect_object>()->follow<dictionary_object>()->add("ToUnicode", toUnicodeObject);
+        type0FontObject->follow<dictionary_object>()->add("ToUnicode", toUnicodeObject);
     }
     auto fontObject = std::shared_ptr<object>(new dictionary_object());
     fontObject->cast<dictionary_object>()->add("F1", type0FontObject);
     newpage->operator[]<dictionary_object>("Resources")->add("Font", fontObject);
 
     return newpage;
+}
+
+pdf_file::pdf_file(const std::string &filename)
+{
+    std::ifstream ifs(filename, std::ios::binary);
+    std::string line;
+    std::getline(ifs, line);
+    header = line.substr(0, 8);
+
+    std::streamoff offset = -1;
+    ifs.seekg(offset, std::ios_base::end);
+    while(ifs.peek() != '%') {
+        ifs.seekg(--offset, std::ios_base::end);
+    }
+    offset -= 2;
+    ifs.seekg(offset, std::ios_base::end);
+    while(std::isspace(ifs.peek())) {
+        ifs.seekg(--offset, std::ios_base::end);
+    }
+    offset -= 1;
+    while(!std::isspace(ifs.peek())) {
+        ifs.seekg(--offset, std::ios_base::end);
+    }
+    size_t cross_reference_offset;
+    ifs >> cross_reference_offset;
+
+    std::vector<int64_t> body_offsets;
+    while(true) {
+        ifs.seekg(cross_reference_offset, std::ios_base::beg);
+        size_t trailer_offset = ifs.tellg();
+        while(std::getline(ifs, line)) {
+            if(line.substr(0,7) == "trailer") {
+                ifs.seekg(trailer_offset, std::ios_base::beg);
+                ifs.ignore(7);
+                break;
+            }
+            if(line.substr(0,4) == "xref") {
+                if(!std::getline(ifs, line)) break;
+            }
+            size_t start, length;
+            std::stringstream ss(line);
+            ss >> start >> length;
+            body_offsets.resize(std::max(start + length + 1, body_offsets.size()));
+            for(int i = start; i < start + length; i++) {
+                int64_t off;
+                int gen;
+                char state;
+                if(!std::getline(ifs, line)) break;
+                std::stringstream ss1(line);
+                ss1 >> off >> gen >> state;
+                if(state == 'n' && body_offsets[i] == 0) {
+                    body_offsets[i] = off;
+                }
+            }
+            trailer_offset = ifs.tellg();
+        }
+
+        auto tobject = parse_object(ifs);
+        if(tobject) {
+            auto trailer_object = tobject->cast<dictionary_object>();
+            if(trailer_object) {
+                auto keys = trailer_object->keys();
+                for(const auto &key: keys) {
+                    if(trailer.operator[]<object>(key) == nullptr) {
+                        trailer.add(key, trailer_object->value(key));
+                    }
+                }
+                auto prev = trailer_object->operator[]<integer_number>("Prev");
+                if(prev) {
+                    cross_reference_offset = prev->get_value();
+                    continue;
+                }
+            }
+        }
+        break;
+    }
+
+    auto encrypt_obj = trailer.operator[]<indirect_object>("Encrypt");
+    if(encrypt_obj) {
+        ifs.seekg(body_offsets[encrypt_obj->number()], std::ios_base::beg);
+        auto obj = parse_object(ifs);
+        if(obj) {
+            auto dict = obj->cast<indirect_object>()->follow<dictionary_object>();
+            if(dict) {
+                encrypt = std::shared_ptr<object>(new crypt_object(*dict));
+                trailer.remove("Encrypt");
+            }
+        }
+    }
+
+    std::vector<int> body_offsets_idx(body_offsets.size());
+    std::iota(body_offsets_idx.begin(), body_offsets_idx.end(), 0);
+    std::sort(body_offsets_idx.begin(), body_offsets_idx.end(), [&](auto a, auto b){
+        return body_offsets[a] < body_offsets[b];
+    });
+
+    for(auto it = body_offsets_idx.begin(); it != body_offsets_idx.end(); ++it) {
+        if(body_offsets[*it] > 0) {
+            // std::cout << "read obj " << *it << " offset " << body_offsets[*it] << std::endl;
+            ifs.seekg(body_offsets[*it], std::ios_base::beg);
+            auto obj = parse_object(ifs);
+            // obj->cast<indirect_object>()->follow<object>()->print();
+            // std::cout << std::endl;
+        }
+    }
+
+    std::sort(body.begin(), body.end(), [](auto a, auto b){
+        return a->number() < b->number();
+    });
+    std::sort(bodyidx.begin(), bodyidx.end());
+}
+
+bool is_whitespace(char c)
+{
+    return c == 0x00 || c == 0x09 || c == 0x0a || c == 0x0c || c == 0x0d || c == 0x20;
+}
+
+bool is_delimiter(char c)
+{
+    return c == '(' || c == ')' || c == '<' || c == '>' || c == '[' || c == ']' || c == '%';
+
+}
+
+std::shared_ptr<hexadecimal_string> pdf_file::parse_hexstring(std::istream &ss)
+{
+    std::string result = "";
+    int c = 0;
+    int v1 = -1;
+    while(ss) {
+        c = ss.get();
+        if(!ss) break;
+        if(c == '<') continue;
+        if(c == '>') break;
+        if(is_whitespace(c)) continue;
+        int v;
+        if(c >= '0' && c <= '9') {
+            v = c - '0';
+        }
+        else if(c >= 'A' && c <= 'F') {
+            v = c - 'A' + 10;
+        }
+        else if(c >= 'a' && c <= 'f') {
+            v = c - 'a' + 10;
+        }
+        else {
+            throw std::runtime_error("invalid hexstring");
+        }
+        if (v1 < 0) {
+            v1 = v;
+        }
+        else {
+            result += (v1 << 4) | v;
+            v1 = -1;
+        }
+    }
+    if(v1 >= 0) {
+        result += (v1 << 4);
+    }
+
+    if(encrypt) {
+        result = encrypt->cast<crypt_object>()->decode_string(result);
+    }
+
+    return std::shared_ptr<hexadecimal_string>(new hexadecimal_string(result));
+}
+
+std::shared_ptr<literal_string> pdf_file::parse_literal(std::istream &ss)
+{
+    std::string result = "";
+    bool isescape = false;
+    bool isescapeCR = false;
+    std::string octalstr = "";
+    while(ss) {
+        char c = ss.get();
+        if(!ss) break;
+        if(isescapeCR && c == 0x0a) {
+            isescapeCR = false;
+            continue;
+        }
+        if(!octalstr.empty() && c >= '0' && c <= '7') {
+            octalstr += c;
+            continue;
+        }
+        if(!octalstr.empty()) {
+            int v = 0;
+            for(auto o: octalstr) {
+                int v2 = o - '0';
+                v = (v << 3) | v2;
+            }
+            result += v;
+            octalstr.clear();
+        }
+        if(isescape) {
+            isescape = false;
+            if(c == 'n') {
+                c = 0x0a;
+            }
+            else if(c == 'r') {
+                c = 0x0d;
+            }
+            else if(c == 't') {
+                c = 0x09;
+            }
+            else if(c == 'b') {
+                c = 0x08;
+            }
+            else if(c == 'f') {
+                c = 0x0c;
+            }
+            else if(c == '(') {
+                c = 0x28;
+            }
+            else if(c == ')') {
+                c = 0x29;
+            }
+            else if(c == '\\') {
+                c = 0x5c;
+            }
+            else if(c >= '0' && c <= '7') {
+                octalstr += c;
+            }
+            else if(c == 0x0d) {
+                c = 0x0a;
+                isescapeCR = true;
+            }
+            else if(c == 0x0a) {
+                c = 0x0a;
+            }
+        }
+        else if(c == '\\') {
+            isescape = true;
+            continue;
+        }
+        result += c;
+    }
+
+    if(encrypt) {
+        result = encrypt->cast<crypt_object>()->decode_string(result);
+    }
+
+    return std::shared_ptr<literal_string>(new literal_string(result));
+}
+
+std::shared_ptr<name_object> pdf_file::parse_name(std::istream &ss)
+{
+    char c = ss.get();
+    while(c != '/') {
+        c = ss.get();
+    }
+    std::string result = "";
+    while(ss) {
+        c = ss.get();
+        if(!ss) break;
+        if(is_whitespace(c)) break;
+        if(is_delimiter(c) || c == '/') {
+            ss.unget();
+            break;
+        }
+        if(c == '#') {
+            c = ss.get();
+            int v1;
+            if(c >= '0' && c <= '9') {
+                v1 = c - '0';
+            }
+            else if(c >= 'A' && c <= 'F') {
+                v1 = c - 'A' + 10;
+            }
+            else if(c >= 'a' && c <= 'f') {
+                v1 = c - 'a' + 10;
+            }
+            c = ss.get();
+            int v2;
+            if(c >= '0' && c <= '9') {
+                v2 = c - '0';
+            }
+            else if(c >= 'A' && c <= 'F') {
+                v2 = c - 'A' + 10;
+            }
+            else if(c >= 'a' && c <= 'f') {
+                v2 = c - 'a' + 10;
+            }
+            result += (v1 << 4) | v2;
+        }
+        else {
+            result += c;
+        }
+    }
+    return std::shared_ptr<name_object>(new name_object(result));
+}
+
+std::shared_ptr<object> pdf_file::parse_numeric(std::istream &is, std::istream &ss)
+{
+    std::string numstr;
+    int count = 0;
+    while(is) {
+        int c = is.get();
+        if(is) {
+            if((c >= '0' && c <= '9') || c == '.' || c == '+' || c == '-') {
+                numstr += char(c);
+            }
+            else if (numstr.empty() && is_whitespace(c)) {
+                continue;
+            }
+            else {
+                count++;
+                break;
+            }
+        }
+    }
+    while(is) {
+        int c = is.get();
+        if(is) {
+            count++;
+        }
+    }
+    ss.seekg(-count, std::ios::cur);
+    if(numstr.find('.') == std::string::npos) {
+        int value;
+        std::stringstream(numstr) >> value;
+        return std::shared_ptr<object>(new integer_number(value));
+    }
+    else {
+        double value;
+        std::stringstream(numstr) >> value;
+        return std::shared_ptr<object>(new real_number(value));
+    }
+}
+
+std::shared_ptr<array_object> pdf_file::parse_array(std::stringstream &ss)
+{
+    ss.seekg(-1, std::ios::end);
+    ss << ' ';
+    ss.seekg(1, std::ios::beg);
+    std::vector<std::shared_ptr<object>> arrayobj;
+    while(ss) {
+        if(is_whitespace(ss.peek())) {
+            ss.get();
+        }
+        auto obj = parse_object(ss);
+        if(obj) {
+            arrayobj.push_back(obj);
+        }
+    }
+    return std::shared_ptr<array_object>(new array_object(arrayobj));
+}
+
+std::shared_ptr<dictionary_object> pdf_file::parse_dictionary(std::stringstream &ss)
+{
+    ss.seekg(0, std::ios::beg);
+    int count = 2;
+    while(ss.get() != '<' || --count > 0);
+    auto dictobj = std::shared_ptr<dictionary_object>(new dictionary_object());
+    while(ss) {
+        std::shared_ptr<object> key = parse_object(ss);
+        std::shared_ptr<object> value = parse_object(ss);
+        if(key && value) {
+            auto name_key = key->cast<name_object>();
+            if(name_key != nullptr) {
+                dictobj->add(name_key->get_value(), value);
+            }
+        }
+    }
+    return dictobj;
+}
+
+std::shared_ptr<object> pdf_file::parse_object(std::istream &ss)
+{
+    enum state {
+        array,
+        hexstring,
+        dictionary,
+        literalstring,
+        name,
+        escape,
+        comment,
+        maybeobj1,
+        maybeobj2,
+        maybeobj3,
+        numeric
+    };
+
+    std::stringstream bs;
+    std::vector<state> current_state;
+    std::string keyword_buffer;
+
+    while(ss) {
+        char c = ss.get();
+        if(!ss) break;
+        bs << c;
+
+        // std::string outstr;
+        // for(auto cstate: current_state) {
+        //     outstr += std::to_string(cstate) + " ";
+        // }
+        // if(outstr.empty()) {
+        //     outstr = "(empty)";
+        // }
+        // if(c >= 0x20 && c < 0x7f) {
+        //     std::cout << c << " " << outstr << std::endl;
+        // }
+        // else {
+        //     int ci = *(unsigned char *)&c;
+        //     std::cout << "b" << ci << " " << outstr << std::endl;
+        // }
+
+    retry: ;
+        if (!current_state.empty() && current_state.back() == escape) {
+            current_state.pop_back();
+            continue;
+        }
+        else if (c == '\\') {
+            keyword_buffer.clear();
+            current_state.push_back(escape);            
+        }
+        else if (!current_state.empty() && current_state.back() == comment) {
+            if(c == '\r') {
+                if(ss.peek() == '\n') {
+                    c = ss.get();
+                }
+                current_state.pop_back();
+                bs = std::stringstream();
+                continue;
+            }
+            else if (c == '\n') {
+                current_state.pop_back();
+                bs = std::stringstream();
+                continue;
+            }
+        }
+        else if (!current_state.empty() && current_state.back() == literalstring && c == ')') {
+            current_state.pop_back();
+            if(current_state.empty()) {
+                std::string buf = bs.str();
+                buf = buf.substr(1, buf.size()-2);
+                std::stringstream bs2(buf);
+                return parse_literal(bs2);
+            }                        
+        }
+        else if (!current_state.empty() && current_state.back() == literalstring) {
+            // ignore spetials
+        }
+        else if (c == '%') {
+            keyword_buffer.clear();
+            current_state.push_back(comment);
+        }
+        else if (!current_state.empty() && current_state.back() == name && (is_whitespace(c) || is_delimiter(c) || c == '/')) {
+            current_state.pop_back();
+            if(current_state.empty()) {
+                if(is_delimiter(c) || c == '/') {
+                    ss.unget();
+                    std::string buf = bs.str();
+                    buf = buf.substr(0, buf.size()-1);
+                    std::stringstream bs2(buf);
+                    return parse_name(bs2);
+                }
+                return parse_name(bs);
+            }
+            goto retry;
+        }
+        else if (!current_state.empty() && current_state.back() == numeric && std::string("0123456789+-.").find_first_of(c) == std::string::npos) {
+            current_state.pop_back();
+            if(current_state.empty()) {
+                return parse_numeric(bs, ss);
+            }
+            goto retry;
+        }
+        else if (!current_state.empty() && current_state.back() == array && c == ']') {
+            current_state.pop_back();
+            if(current_state.empty()) {
+                return parse_array(bs);
+            }
+        }
+        else if (!current_state.empty() && current_state.back() == hexstring && c == '>') {
+            current_state.pop_back();
+            if(current_state.empty()) {
+                return parse_hexstring(bs);
+            }            
+        }
+        else if (!current_state.empty() && current_state.back() == dictionary && c == '>') {
+            c = ss.get();
+            bs << c;
+
+            if(c == '>') {
+                current_state.pop_back();
+                if(current_state.empty()) {
+                    return parse_dictionary(bs);
+                }
+            }
+        }
+        else if (!current_state.empty() && current_state.back() == maybeobj1 && is_whitespace(c)) {
+            current_state.back() = maybeobj2;
+        }
+        else if (!current_state.empty() && current_state.back() == maybeobj1 && c == '.') {
+            current_state.back() = numeric;
+        }
+        else if (!current_state.empty() && current_state.back() == maybeobj1 && std::string("0123456789").find_first_of(c) == std::string::npos) {
+            current_state.pop_back();
+            if(current_state.empty()) {
+                return parse_numeric(bs, ss);
+            }
+        }
+        else if (!current_state.empty() && current_state.back() == maybeobj2 && is_whitespace(c)) {
+            current_state.back() = maybeobj3;
+        }
+        else if (!current_state.empty() && current_state.back() == maybeobj2 && std::string("0123456789").find_first_of(c) == std::string::npos) {
+            current_state.pop_back();
+            if(current_state.empty()) {
+                return parse_numeric(bs, ss);
+            }
+        }
+        else if (!current_state.empty() && current_state.back() == maybeobj3 && c == 'R') {
+            current_state.pop_back();
+            int obj_num, gen_num;
+            std::stringstream(bs.str()) >> obj_num >> gen_num;
+            return ref_object(obj_num);
+        }
+        else if (!current_state.empty() && current_state.back() == maybeobj3 && c == 'o') {
+            current_state.pop_back();
+            int obj_num, gen_num;
+            std::string str3;
+            std::stringstream(bs.str()) >> obj_num >> gen_num;
+            ss.ignore(2);
+            return register_object(ss, obj_num);
+        }
+        else if (!current_state.empty() && current_state.back() == maybeobj3) {
+            current_state.pop_back();
+            if(current_state.empty()) {
+                return parse_numeric(bs, ss);
+            }
+        }
+        else if (c == '[') {
+            keyword_buffer.clear();
+            current_state.push_back(array);
+        }
+        else if (!current_state.empty() && current_state.back() == hexstring && c == '<') {
+            current_state.back() = dictionary;
+        }
+        else if (c == '<') {
+            keyword_buffer.clear();
+            current_state.push_back(hexstring);            
+        }
+        else if (c == '(') {
+            keyword_buffer.clear();
+            current_state.push_back(literalstring);            
+        }
+        else if (c == '/') {
+            keyword_buffer.clear();
+            current_state.push_back(name);
+        }
+        else if (current_state.empty()){
+            if(!is_whitespace(c)) {
+                keyword_buffer += c;
+            }
+            else {
+                continue;
+            }
+
+            if(keyword_buffer == "null") {
+                return std::shared_ptr<object>(new null_object());
+            }
+            if(keyword_buffer == "true") {
+                return std::shared_ptr<object>(new boolean_value(true));
+            }
+            if(keyword_buffer == "false") {
+                return std::shared_ptr<object>(new boolean_value(false));
+            }
+            
+            if(keyword_buffer == "xref") {
+                return nullptr;
+            }
+            if(keyword_buffer == "startxref") {
+                return nullptr;
+            }
+
+            if(c == '+' || c == '-') {
+                current_state.push_back(numeric);
+            }
+            else if(std::string("0123456789").find_first_of(c) != std::string::npos) {
+                current_state.push_back(maybeobj1);
+            }
+        }
+    }
+    return nullptr;
+}
+
+std::shared_ptr<indirect_object> pdf_file::ref_object(int objnum)
+{
+    if(objnum == 0) return nullptr;
+
+    auto it = std::find(bodyidx.begin(), bodyidx.end(), objnum);
+    if(it == bodyidx.end()) {
+        bodyidx.push_back(objnum);
+        body.emplace_back(new indirect_object(objnum));
+        int maxidx = 1;
+        for(auto i: bodyidx) {
+            maxidx = std::max(i+1, maxidx);
+        }
+        trailer.add("Size", std::shared_ptr<object>(new integer_number(maxidx)));
+        it = std::find(bodyidx.begin(), bodyidx.end(), objnum);
+    }
+    auto idx = std::distance(bodyidx.begin(), it);
+    return body[idx];
+}
+
+std::shared_ptr<indirect_object> pdf_file::register_object(std::istream &ss, int obj_num)
+{
+    if(ref_object(obj_num)->isLoaded()) {
+        return ref_object(obj_num);
+    }
+
+    auto obj = parse_object(ss);
+    if(!obj) throw std::runtime_error("parse error");
+
+    // std::cout << "register_object " << obj_num << std::endl;
+    // obj->print();
+    // std::cout << std::endl;
+
+    std::string keyword;
+    ss >> keyword;
+    if(keyword.substr(0, 6) == "endobj") {
+        auto indirectobj = ref_object(obj_num);
+        indirectobj->set(obj);
+        return indirectobj;
+    }
+    if(keyword.substr(0, 6) == "stream") {
+        auto dict = obj->cast<dictionary_object>();
+        if(dict) {
+            auto length = dict->operator[]<integer_number>("Length");
+            if(!length) {
+                length = ref_object(dict->operator[]<indirect_object>("Length")->number())->follow<integer_number>();
+            }
+            if(length) {
+                if(ss.peek() == 0x0d) {
+                    ss.ignore(2);
+                }
+                else if (ss.peek() == 0x0a) {
+                    ss.ignore();
+                }
+                std::vector<uint8_t> stream(length->get_value());
+                ss.read((char *)stream.data(), stream.size());
+                if(ss.peek() == 0x0d) {
+                    ss.ignore(2);
+                }
+                else if (ss.peek() == 0x0a) {
+                    ss.ignore();
+                }
+                ss >> keyword;
+                if(keyword.substr(0, 9) == "endstream") {
+                    ss >> keyword;
+                    if(keyword.substr(0, 6) == "endobj") {
+                        if(encrypt) {
+                            stream = encrypt->cast<crypt_object>()->decode_stream(stream);
+                        }
+
+                        auto streamobj = std::shared_ptr<object>(new stream_object(*dict, stream));
+                        auto indirectobj = ref_object(obj_num);
+                        indirectobj->set(streamobj);
+                        return indirectobj;
+                    }
+                }
+            }
+        }
+    }
+    return nullptr;
+}
+
+std::vector<uint8_t> ASCIIHexDecode(const std::vector<uint8_t> &stream)
+{
+    std::vector<uint8_t> result;
+    int i = 0;
+    uint8_t value = 0;
+    for(auto v: stream) {
+        if(v >= '0' && v <= '9') {
+            value |= v - '0';
+        }
+        else if(v >= 'A' && v <= 'F') {
+            value |= v - 'A' + 10;
+        }
+        else if(v >= 'a' && v <= 'f') {
+            value |= v - 'a' + 10;
+        }
+        else if(v == 0x3e) {
+            if(i == 1) {
+                result.push_back(value);
+            }
+            break;
+        }
+        else {
+            continue;
+        }
+        i++;
+        if(i == 1) {
+            value <<= 4;
+        }
+        else if(i == 2) {
+            result.push_back(value);
+            value = 0;
+            i = 0;
+        }
+    }
+    return result;
+}
+
+std::vector<uint8_t> ASCII85Decode(const std::vector<uint8_t> &stream)
+{
+    std::vector<uint8_t> result;
+    int i = 0;
+    uint32_t value = 0;
+    for(auto v: stream) {
+        if(v >= '!' && v <= 'u') {
+            int b = v - '!';
+            if(i == 0) {
+                value += b * 85 * 85 * 85 * 85;
+            }
+            else if(i == 1) {
+                value += b * 85 * 85 * 85;
+            }
+            else if(i == 2) {
+                value += b * 85 * 85;
+            }
+            else if(i == 3) {
+                value += b * 85;
+            }
+            else if(i == 4) {
+                value += b;
+            }
+        }
+        else if(i == 0 && v == 'z') {
+            result.push_back(0);
+            result.push_back(0);
+            result.push_back(0);
+            result.push_back(0);
+        }
+        else if(v == 0x7e) {
+            if(i == 0) {
+            }
+            else if(i == 2) {
+                result.push_back((value & 0xff000000) >> 24);
+            }
+            else if(i == 3) {
+                result.push_back((value & 0xff000000) >> 24);
+                result.push_back((value & 0x00ff0000) >> 16);
+            }
+            else if(i == 4) {
+                result.push_back((value & 0xff000000) >> 24);
+                result.push_back((value & 0x00ff0000) >> 16);
+                result.push_back((value & 0x0000ff00) >> 8);
+            }
+            break;
+        }
+        else {
+            continue;
+        }
+        i++;
+        if(i == 5) {
+            result.push_back((value & 0xff000000) >> 24);
+            result.push_back((value & 0x00ff0000) >> 16);
+            result.push_back((value & 0x0000ff00) >> 8);
+            result.push_back(value & 0x000000ff);
+            value = 0;
+            i = 0;
+        }
+    }
+    return result;
+}
+
+std::vector<uint8_t> FlateDecode(const std::vector<uint8_t> &stream)
+{
+    std::vector<uint8_t> result;
+    std::vector<uint8_t> outBuf(0x4000);
+    z_stream zStream{ 0 };
+    inflateInit(&zStream);
+
+    zStream.avail_in = stream.size();
+    zStream.next_in = const_cast<uint8_t*>(stream.data());
+    do {
+        zStream.next_out = outBuf.data();
+        zStream.avail_out = outBuf.size();
+        inflate(&zStream, Z_NO_FLUSH);
+        auto outSize = outBuf.size() - zStream.avail_out;
+        std::copy(outBuf.begin(), outBuf.begin() + outSize, std::back_inserter(result));
+    } while (zStream.avail_out == 0);
+
+    inflateEnd(&zStream);
+
+    return result;
+}
+
+void decode_stream(dictionary_object &dict, std::vector<uint8_t> &stream)
+{
+    auto filter = dict.operator[]<name_object>("Filter");
+    auto decodeParms = dict.operator[]<dictionary_object>("DecodeParms");
+    if(filter) {
+        if(filter->get_value() == "ASCIIHexDecode") {
+            stream = ASCIIHexDecode(stream);
+            dict.remove("Filter");
+        }
+        else if(filter->get_value() == "ASCII85Decode") {
+            stream = ASCII85Decode(stream);
+            dict.remove("Filter");
+        }
+        else if(filter->get_value() == "FlateDecode") {
+            stream = FlateDecode(stream);
+            dict.remove("Filter");
+            dict.remove("DecodeParms");
+        }
+        return;
+    }
+
+    auto filters = dict.operator[]<array_object>("Filter");
+    auto decodeParmss = dict.operator[]<array_object>("DecodeParms");
+    if(filters) {
+        int i = 0;
+        while(true) {
+            filter = filters->operator[]<name_object>(i);
+            if(!filter) {
+                return;
+            }
+
+            if(filter->get_value() == "ASCIIHexDecode") {
+                stream = ASCIIHexDecode(stream);
+                filters->remove(i);
+            }
+            else if(filter->get_value() == "ASCII85Decode") {
+                stream = ASCII85Decode(stream);
+                filters->remove(i);
+            }
+            else if(filter->get_value() == "FlateDecode") {
+                stream = FlateDecode(stream);
+                if(decodeParmss) {
+                    decodeParms = decodeParmss->operator[]<dictionary_object>(i);
+                    if(decodeParms) {
+                        decodeParmss->remove(i);
+                    }
+                }
+                filters->remove(i);
+            }
+            else {
+                i++;
+            }
+        }
+    }
 }

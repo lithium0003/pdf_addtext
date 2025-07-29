@@ -3,10 +3,11 @@ SRCS   = main.cpp
 SRCS  += pdf.cpp
 SRCS  += dummyfont.cpp
 SRCS  += json.cpp
+SRCS  += crypt.cpp
 OBJS   = $(SRCS:.cpp=.o)
 
-CFLAGS = -O2 -std=c++17 `pkg-config --cflags libjpeg` `pkg-config --cflags zlib`
-LIBS   = `pkg-config --libs libjpeg` `pkg-config --libs zlib`
+CFLAGS = -O2 -std=c++17 `pkg-config --cflags libjpeg` `pkg-config --cflags openssl` `pkg-config --cflags zlib`
+LIBS   = `pkg-config --libs libjpeg` `pkg-config --libs openssl` `pkg-config --libs zlib`
 
 all: $(TARGET)
 
@@ -17,7 +18,8 @@ $(TARGET): $(OBJS)
 	$(CXX) -c $< $(CFLAGS)
 
 main.o: main.cpp pdf.hpp json.hpp
-main.o: pdf.hpp pdf.hpp json.hpp
+pdf.o: pdf.cpp pdf.hpp json.hpp
+crypt.o: crypt.cpp crypt.hpp pdf.hpp
 json.o: json.cpp json.hpp
 dummyfont.o: dummyfont.cpp
 
