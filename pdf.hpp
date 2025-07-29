@@ -20,11 +20,6 @@ class object {
         virtual std::string debug() const { return output(); }
         virtual std::string dump() const { return output(); }
 
-        template<typename T>
-        T* cast() {
-            return dynamic_cast<T *>(this);
-        }
-
         friend std::ostream& operator<<(std::ostream& os, const object* obj);
 };
 // boolean values, integers, real numbers, strings, names, arrays, dictionaries, streams, and the null object.
@@ -293,9 +288,9 @@ class array_object: public direct_object {
         array_object(const std::vector<std::shared_ptr<object>> &value): _value(value) {}
 
         template<typename T>
-        T* operator[](std::size_t idx) const {
+        std::shared_ptr<T> operator[](std::size_t idx) const {
             if(idx < _value.size()) {
-                return _value[idx]->cast<T>();
+                return std::dynamic_pointer_cast<T>(_value[idx]);
             }
             else {
                 return nullptr;
@@ -354,10 +349,10 @@ class dictionary_object: public direct_object {
         }
 
         template<typename T>
-        T* operator[](const std::string key) const {
+        std::shared_ptr<T> operator[](const std::string key) const {
             for(int i = 0; i < _keys.size(); i++) {
                 if(_keys[i].get_value() == key) {
-                    return _value[i]->cast<T>();
+                    return std::dynamic_pointer_cast<T>(_value[i]);
                 }
             }
             return nullptr;
@@ -519,8 +514,8 @@ class indirect_object: public object {
             : _number(num), _generation(0), _target(nullptr) {}
 
         template<typename T>
-        T* follow() {
-            return dynamic_cast<T*>(_target.get());
+        std::shared_ptr<T> follow() {
+            return std::dynamic_pointer_cast<T>(_target);
         }
 
         bool isLoaded() {
@@ -601,6 +596,9 @@ class PageObject: public dictionary_object {
             add("MediaBox", std::shared_ptr<object>(new Rectangle()));
         }
 
+        PageObject(const dictionary_object &base)
+            : dictionary_object(base) {}
+
         void set_parent(std::shared_ptr<object> obj) {
             add("Parent", obj);
         }
@@ -615,6 +613,8 @@ class PageObject: public dictionary_object {
 };
 
 class PagesObject: public dictionary_object {
+    private:
+        std::vector<std::shared_ptr<PageObject>> page_array;
     public:
         PagesObject() {
             add("Type", std::shared_ptr<object>(new name_object("Pages")));
@@ -622,10 +622,50 @@ class PagesObject: public dictionary_object {
             add("Count", std::shared_ptr<object>(new integer_number(0)));
         }
 
+        PagesObject(const dictionary_object &base)
+            : dictionary_object(base) {
+            auto kids = operator[]<array_object>("Kids");
+            int i = 0;
+            auto p = kids->operator[]<indirect_object>(i);
+            while(p) {
+                auto dict = p->follow<dictionary_object>();
+                if(dict) {
+                    if(dict->operator[]<name_object>("Type")->get_value() == "Pages") {
+                        p->set(std::shared_ptr<object>(new PagesObject(*dict)));
+                    }
+                    else if(dict->operator[]<name_object>("Type")->get_value() == "Page") {
+                        p->set(std::shared_ptr<object>(new PageObject(*dict)));
+                    }
+                }
+                p = kids->operator[]<indirect_object>(++i);
+            }
+            i = 0;
+            p = kids->operator[]<indirect_object>(i);
+            while(p) {
+                auto tree = p->follow<PagesObject>();
+                if(tree) {
+                    std::copy(tree->page_array.begin(), tree->page_array.end(), std::back_inserter(page_array));
+                }
+                auto leaf = p->follow<PageObject>();
+                if(leaf) {
+                    page_array.push_back(leaf);
+                }
+                p = kids->operator[]<indirect_object>(++i);
+            }
+        }
+
         void add_page(std::shared_ptr<object> obj) {
             operator[]<array_object>("Kids")->add(obj);
             auto count = operator[]<integer_number>("Count");
             count->set_value(count->get_value() + 1);
+        }
+
+        std::vector<std::shared_ptr<PageObject>>::iterator begin() {
+            return page_array.begin();
+        }
+
+        std::vector<std::shared_ptr<PageObject>>::iterator end() {
+            return page_array.end();
         }
 };
 
@@ -634,6 +674,9 @@ class RootObject: public dictionary_object {
         RootObject() {
             add("Type", std::shared_ptr<object>(new name_object("Catalog")));
         }
+
+        RootObject(const dictionary_object &base)
+            : dictionary_object(base) {}
 
         void add_pages(std::shared_ptr<object> obj) {
             add("Pages", obj);
@@ -670,5 +713,6 @@ class pdf_file {
         pdf_file(const std::string &filename);
         std::string dump() const;
         std::shared_ptr<PageObject> add_image(const std::string &jpgname, const std::vector<charbox> &box);
+        int extract_images(const std::string &target_path);
 };
 

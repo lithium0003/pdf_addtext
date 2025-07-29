@@ -1,10 +1,12 @@
 #include <numeric>
+#include <filesystem>
 
 #include "pdf.hpp"
 #include "crypt.hpp"
 
 #include <jpeglib.h>
 #include <zlib.h>
+#include <png.h>
 
 std::ostream& operator<<(std::ostream& os, const object* obj)
 {
@@ -165,7 +167,7 @@ std::shared_ptr<PageObject> pdf_file::new_page()
     auto newpage = std::shared_ptr<PageObject>(new PageObject());
     auto page = add_object(newpage);
     pages->follow<PagesObject>()->add_page(page);
-    newpage->cast<PageObject>()->set_parent(pages);
+    newpage->set_parent(pages);
     return newpage;
 }
 
@@ -388,8 +390,8 @@ std::shared_ptr<PageObject> pdf_file::add_image(const std::string &jpgname, cons
 
     auto jpeg = std::shared_ptr<JpegImageObject>(new JpegImageObject(jpgname));
     auto imageXObject = add_object(jpeg);
-    auto dictXObject = std::shared_ptr<object>(new dictionary_object());
-    dictXObject->cast<dictionary_object>()->add("Im1", imageXObject);
+    auto dictXObject = std::shared_ptr<dictionary_object>(new dictionary_object());
+    dictXObject->add("Im1", imageXObject);
 
     std::stringstream ss;
     ss << "q" << std::endl;
@@ -514,7 +516,7 @@ std::shared_ptr<PageObject> pdf_file::add_image(const std::string &jpgname, cons
     std::vector<uint8_t> stream(str.begin(), str.end());
     auto content = add_object(std::shared_ptr<object>(new stream_object(stream)));
     newpage->set_contents(content);
-    newpage->set_mediabox(0,0,jpeg->cast<JpegImageObject>()->width,jpeg->cast<JpegImageObject>()->height);
+    newpage->set_mediabox(0,0,jpeg->width,jpeg->height);
     newpage->operator[]<dictionary_object>("Resources")->add("XObject", dictXObject);
 
     auto type0FontObject = add_object(std::shared_ptr<object>(new dictionary_object()));
@@ -570,8 +572,8 @@ std::shared_ptr<PageObject> pdf_file::add_image(const std::string &jpgname, cons
         auto toUnicodeObject = add_object(std::shared_ptr<object>(new stream_object(stream)));        
         type0FontObject->follow<dictionary_object>()->add("ToUnicode", toUnicodeObject);
     }
-    auto fontObject = std::shared_ptr<object>(new dictionary_object());
-    fontObject->cast<dictionary_object>()->add("F1", type0FontObject);
+    auto fontObject = std::shared_ptr<dictionary_object>(new dictionary_object());
+    fontObject->add("F1", type0FontObject);
     newpage->operator[]<dictionary_object>("Resources")->add("Font", fontObject);
 
     return newpage;
@@ -634,7 +636,7 @@ pdf_file::pdf_file(const std::string &filename)
 
         auto tobject = parse_object(ifs);
         if(tobject) {
-            auto trailer_object = tobject->cast<dictionary_object>();
+            auto trailer_object = std::dynamic_pointer_cast<dictionary_object>(tobject);
             if(trailer_object) {
                 auto keys = trailer_object->keys();
                 for(const auto &key: keys) {
@@ -657,7 +659,7 @@ pdf_file::pdf_file(const std::string &filename)
         ifs.seekg(body_offsets[encrypt_obj->number()], std::ios_base::beg);
         auto obj = parse_object(ifs);
         if(obj) {
-            auto dict = obj->cast<indirect_object>()->follow<dictionary_object>();
+            auto dict = std::dynamic_pointer_cast<indirect_object>(obj)->follow<dictionary_object>();
             if(dict) {
                 encrypt = std::shared_ptr<object>(new crypt_object(*dict));
                 trailer.remove("Encrypt");
@@ -676,8 +678,6 @@ pdf_file::pdf_file(const std::string &filename)
             // std::cout << "read obj " << *it << " offset " << body_offsets[*it] << std::endl;
             ifs.seekg(body_offsets[*it], std::ios_base::beg);
             auto obj = parse_object(ifs);
-            // obj->cast<indirect_object>()->follow<object>()->print();
-            // std::cout << std::endl;
         }
     }
 
@@ -685,6 +685,20 @@ pdf_file::pdf_file(const std::string &filename)
         return a->number() < b->number();
     });
     std::sort(bodyidx.begin(), bodyidx.end());
+
+    auto root_obj = trailer.operator[]<indirect_object>("Root");
+    if(root_obj) {
+        root = root_obj;
+        auto dict = root_obj->follow<dictionary_object>();
+        root_obj->set(std::shared_ptr<RootObject>(new RootObject(*dict)));
+    }
+
+    auto pages_obj = root_obj->follow<RootObject>()->operator[]<indirect_object>("Pages");
+    if(pages_obj) {
+        pages = pages_obj;
+        auto dict = pages_obj->follow<dictionary_object>();
+        pages_obj->set(std::shared_ptr<PagesObject>(new PagesObject(*dict)));
+    }
 }
 
 bool is_whitespace(char c)
@@ -735,7 +749,7 @@ std::shared_ptr<hexadecimal_string> pdf_file::parse_hexstring(std::istream &ss)
     }
 
     if(encrypt) {
-        result = encrypt->cast<crypt_object>()->decode_string(result);
+        result = std::dynamic_pointer_cast<crypt_object>(encrypt)->decode_string(result);
     }
 
     return std::shared_ptr<hexadecimal_string>(new hexadecimal_string(result));
@@ -812,7 +826,7 @@ std::shared_ptr<literal_string> pdf_file::parse_literal(std::istream &ss)
     }
 
     if(encrypt) {
-        result = encrypt->cast<crypt_object>()->decode_string(result);
+        result = std::dynamic_pointer_cast<crypt_object>(encrypt)->decode_string(result);
     }
 
     return std::shared_ptr<literal_string>(new literal_string(result));
@@ -931,7 +945,7 @@ std::shared_ptr<dictionary_object> pdf_file::parse_dictionary(std::stringstream 
         std::shared_ptr<object> key = parse_object(ss);
         std::shared_ptr<object> value = parse_object(ss);
         if(key && value) {
-            auto name_key = key->cast<name_object>();
+            auto name_key = std::dynamic_pointer_cast<name_object>(key);
             if(name_key != nullptr) {
                 dictobj->add(name_key->get_value(), value);
             }
@@ -1200,7 +1214,7 @@ std::shared_ptr<indirect_object> pdf_file::register_object(std::istream &ss, int
         return indirectobj;
     }
     if(keyword.substr(0, 6) == "stream") {
-        auto dict = obj->cast<dictionary_object>();
+        auto dict = std::dynamic_pointer_cast<dictionary_object>(obj);
         if(dict) {
             auto length = dict->operator[]<integer_number>("Length");
             if(!length) {
@@ -1226,7 +1240,7 @@ std::shared_ptr<indirect_object> pdf_file::register_object(std::istream &ss, int
                     ss >> keyword;
                     if(keyword.substr(0, 6) == "endobj") {
                         if(encrypt) {
-                            stream = encrypt->cast<crypt_object>()->decode_stream(stream);
+                            stream = std::dynamic_pointer_cast<crypt_object>(encrypt)->decode_stream(stream);
                         }
 
                         auto streamobj = std::shared_ptr<object>(new stream_object(*dict, stream));
@@ -1417,4 +1431,101 @@ void decode_stream(dictionary_object &dict, std::vector<uint8_t> &stream)
             }
         }
     }
+}
+
+void output_jpeg(const std::string &target_path, int page_no, const std::string &key, const std::vector<uint8_t> &data)
+{
+    std::filesystem::path path(target_path);
+    std::stringstream ss;
+    ss.fill('0');
+    ss << "page" << std::setw(4) << page_no;
+    path /= ss.str() + "_" + key + ".jpg";
+
+    std::ofstream ofs(path, std::ios::binary);
+    ofs.write((const char *)data.data(), data.size());
+}
+
+void output_gray8(const std::string &target_path, int page_no, const std::string &key, const std::vector<uint8_t> &data, int width, int height)
+{
+    std::filesystem::path path(target_path);
+    std::stringstream ss;
+    ss.fill('0');
+    ss << "page" << std::setw(4) << page_no;
+    path /= ss.str() + "_" + key + ".png";
+
+    FILE *fp = fopen(path.c_str(), "wb");
+    auto png = png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
+    auto info = png_create_info_struct(png);
+    png_init_io(png, fp);
+
+    png_set_IHDR(png, info, width, height, 8,
+      PNG_COLOR_TYPE_GRAY, PNG_INTERLACE_NONE, PNG_COMPRESSION_TYPE_DEFAULT,
+      PNG_FILTER_TYPE_DEFAULT);
+    png_bytepp rows = (png_bytepp)png_malloc(png, sizeof(png_bytep) * height);
+    png_set_rows(png, info, rows);
+    memset(rows, 0, sizeof(png_bytep) * height);
+    for (int y = 0; y < height; y++) {
+        rows[y] = (png_bytep)png_malloc(png, sizeof(png_byte) * width);
+    }
+    const uint8_t *datap = data.data();
+    for (int y = 0; y < height; y++) {
+        png_bytep row = rows[y];
+        for (int x = 0; x < width; x++) {
+          *row++ = *datap++;
+        }
+    }
+    png_write_png(png, info, PNG_TRANSFORM_IDENTITY, NULL);
+    if (rows != NULL) {
+        for (int y = 0; y < height; y++) {
+            png_free(png, rows[y]);
+        }
+        png_free(png, rows);
+    }
+    png_destroy_write_struct(&png, &info);
+    fclose(fp); 
+}
+
+int pdf_file::extract_images(const std::string &target_path)
+{
+    auto tree = pages->follow<PagesObject>();
+    int page_no = 1;
+    int count = 0;
+    for(auto it = tree->begin(); it != tree->end(); ++it, ++page_no) {
+        auto res = (*it)->operator[]<dictionary_object>("Resources");
+        if(!res) continue;
+        auto xobject = res->operator[]<dictionary_object>("XObject");
+        if(!xobject) continue;
+
+        for(auto key: xobject->keys()) {
+            auto item = xobject->operator[]<indirect_object>(key)->follow<stream_object>();
+            auto subtype = item->get_dict().operator[]<name_object>("Subtype");
+            if(subtype && subtype->get_value() == "Image") {
+                auto filter = item->get_dict().operator[]<object>("Filter");
+                if(filter) {
+                    auto afilter = std::dynamic_pointer_cast<name_object>(filter);
+                    if(afilter && afilter->get_value() == "DCTDecode") {
+                        output_jpeg(target_path, page_no, key, item->get_stream());
+                        count++;
+                    }
+                    auto filters = std::dynamic_pointer_cast<array_object>(filter);
+                    if(filters && filters->operator[]<name_object>(0)->get_value() == "DCTDecode") {
+                        output_jpeg(target_path, page_no, key, item->get_stream());
+                        count++;
+                    }
+                }
+                else {
+                    // raw image
+                    int width = item->get_dict().operator[]<integer_number>("Width")->get_value();
+                    int height = item->get_dict().operator[]<integer_number>("Height")->get_value();
+                    int bits = item->get_dict().operator[]<integer_number>("BitsPerComponent")->get_value();
+                    auto color = item->get_dict().operator[]<name_object>("ColorSpace")->get_value();
+                    const auto &values = item->get_stream();
+                    if(std::all_of(values.begin(), values.end(), [&](auto i) { return i == values[0]; })) continue;
+                    output_gray8(target_path, page_no, key, values, width, height);
+                    count++;
+                }
+            }
+        }
+    }
+    return count;
 }
