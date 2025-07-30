@@ -4,9 +4,13 @@
 #include "pdf.hpp"
 #include "crypt.hpp"
 
-#include <jpeglib.h>
+#include "jpeglib.h"
 #include <zlib.h>
 #include <png.h>
+
+extern "C" {
+#include "transupp.h"
+}
 
 std::ostream& operator<<(std::ostream& os, const object* obj)
 {
@@ -1433,7 +1437,7 @@ void decode_stream(dictionary_object &dict, std::vector<uint8_t> &stream)
     }
 }
 
-void output_jpeg(const std::string &target_path, int page_no, const std::string &key, const std::vector<uint8_t> &data)
+void output_jpeg(const std::string &target_path, int page_no, const std::string &key, const std::vector<uint8_t> &data, int rotate = 0)
 {
     std::filesystem::path path(target_path);
     std::stringstream ss;
@@ -1441,12 +1445,82 @@ void output_jpeg(const std::string &target_path, int page_no, const std::string 
     ss << "page" << std::setw(4) << page_no;
     path /= ss.str() + "_" + key + ".jpg";
 
-    std::ofstream ofs(path, std::ios::binary);
-    ofs.write((const char *)data.data(), data.size());
+    {
+        std::ofstream ofs(path, std::ios::binary);
+        ofs.write((const char *)data.data(), data.size());
+    }
+
+    if(rotate == 0) return;
+
+    struct jpeg_decompress_struct srcObj;
+    struct jpeg_error_mgr srcErrMgr;
+    
+    struct jpeg_compress_struct destObj;
+    struct jpeg_error_mgr destErrMgr;
+
+    jpeg_transform_info transformoption;
+    if(rotate == 90) {
+        transformoption.transform = JXFORM_ROT_90;
+    }
+    else if(rotate == 180) {
+        transformoption.transform = JXFORM_ROT_180;
+    }
+    else if(rotate == 270) {
+        transformoption.transform = JXFORM_ROT_270;
+    }
+    transformoption.perfect = FALSE;
+    transformoption.trim = FALSE;
+    transformoption.force_grayscale = FALSE;
+    transformoption.crop = FALSE;
+    transformoption.slow_hflip = FALSE;
+
+    srcObj.err = jpeg_std_error(&srcErrMgr);
+    jpeg_create_decompress(&srcObj);
+
+    destObj.err = jpeg_std_error(&destErrMgr);
+    jpeg_create_compress(&destObj);
+
+    FILE *inputFile = fopen(path.c_str(), "rb");
+    jpeg_stdio_src(&srcObj, inputFile);
+    JCOPY_OPTION copyOpt = JCOPYOPT_ALL;
+
+    jcopy_markers_setup(&srcObj, copyOpt);
+
+    (void)jpeg_read_header(&srcObj, TRUE);
+
+    jtransform_request_workspace(&srcObj, &transformoption);
+
+    auto srcCoefArr = jpeg_read_coefficients(&srcObj);
+    jpeg_copy_critical_parameters(&srcObj, &destObj);
+
+    auto destCoefArr = jtransform_adjust_parameters(&srcObj, &destObj, srcCoefArr, &transformoption);
+
+    fclose(inputFile);
+
+    FILE *outputFile = fopen(path.c_str(), "wb");
+    jpeg_stdio_dest(&destObj, outputFile);
+    
+    jpeg_write_coefficients(&destObj, destCoefArr);
+
+    jcopy_markers_execute(&srcObj, &destObj, copyOpt);
+
+    jtransform_execute_transformation(&srcObj, &destObj, srcCoefArr, &transformoption);
+
+    jpeg_finish_compress(&destObj);
+    jpeg_destroy_compress(&destObj);
+
+    (void)jpeg_finish_decompress(&srcObj);
+    jpeg_destroy_decompress(&srcObj);
+
+    fclose(outputFile);
 }
 
-void output_gray8(const std::string &target_path, int page_no, const std::string &key, const std::vector<uint8_t> &data, int width, int height)
+void output_gray8(const std::string &target_path, int page_no, const std::string &key, const std::vector<uint8_t> &data, int width, int height, int rotate = 0)
 {
+    if(rotate == 90 || rotate == 270) {
+        std::swap(width, height);
+    }
+
     std::filesystem::path path(target_path);
     std::stringstream ss;
     ss.fill('0');
@@ -1467,11 +1541,37 @@ void output_gray8(const std::string &target_path, int page_no, const std::string
     for (int y = 0; y < height; y++) {
         rows[y] = (png_bytep)png_malloc(png, sizeof(png_byte) * width);
     }
-    const uint8_t *datap = data.data();
-    for (int y = 0; y < height; y++) {
-        png_bytep row = rows[y];
-        for (int x = 0; x < width; x++) {
-          *row++ = *datap++;
+    if(rotate == 0) {
+        const uint8_t *datap = data.data();
+        for (int y = 0; y < height; y++) {
+            png_bytep row = rows[y];
+            for (int x = 0; x < width; x++) {
+            *row++ = *datap++;
+            }
+        }
+    }
+    else if(rotate == 90) {
+        for (int y = 0; y < height; y++) {
+            png_bytep row = rows[y];
+            for (int x = 0; x < width; x++) {
+            *row++ = data[(width - 1 - x)*height + y];
+            }
+        }
+    }
+    else if(rotate == 180) {
+        for (int y = 0; y < height; y++) {
+            png_bytep row = rows[y];
+            for (int x = 0; x < width; x++) {
+            *row++ = data[(height - 1 - y)*width + x];
+            }
+        }
+    }
+    else if(rotate == 270) {
+        for (int y = 0; y < height; y++) {
+            png_bytep row = rows[y];
+            for (int x = 0; x < width; x++) {
+            *row++ = data[x * height + (height - 1 - y)];
+            }
         }
     }
     png_write_png(png, info, PNG_TRANSFORM_IDENTITY, NULL);
@@ -1493,6 +1593,11 @@ int pdf_file::extract_images(const std::string &target_path)
     for(auto it = tree->begin(); it != tree->end(); ++it, ++page_no) {
         auto res = (*it)->operator[]<dictionary_object>("Resources");
         if(!res) continue;
+        auto rotateobj = (*it)->operator[]<integer_number>("Rotate");
+        int rotate = 0;
+        if(rotateobj) {
+            rotate = rotateobj->get_value();
+        }
         auto xobject = res->operator[]<dictionary_object>("XObject");
         if(!xobject) continue;
 
@@ -1504,12 +1609,12 @@ int pdf_file::extract_images(const std::string &target_path)
                 if(filter) {
                     auto afilter = std::dynamic_pointer_cast<name_object>(filter);
                     if(afilter && afilter->get_value() == "DCTDecode") {
-                        output_jpeg(target_path, page_no, key, item->get_stream());
+                        output_jpeg(target_path, page_no, key, item->get_stream(), rotate);
                         count++;
                     }
                     auto filters = std::dynamic_pointer_cast<array_object>(filter);
                     if(filters && filters->operator[]<name_object>(0)->get_value() == "DCTDecode") {
-                        output_jpeg(target_path, page_no, key, item->get_stream());
+                        output_jpeg(target_path, page_no, key, item->get_stream(), rotate);
                         count++;
                     }
                 }
@@ -1521,7 +1626,7 @@ int pdf_file::extract_images(const std::string &target_path)
                     auto color = item->get_dict().operator[]<name_object>("ColorSpace")->get_value();
                     const auto &values = item->get_stream();
                     if(std::all_of(values.begin(), values.end(), [&](auto i) { return i == values[0]; })) continue;
-                    output_gray8(target_path, page_no, key, values, width, height);
+                    output_gray8(target_path, page_no, key, values, width, height, rotate);
                     count++;
                 }
             }
