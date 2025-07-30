@@ -5,6 +5,7 @@ SRCS  += pdf.cpp
 SRCS  += dummyfont.cpp
 SRCS  += json.cpp
 SRCS  += crypt.cpp
+SRCS  += fax.cpp
 
 OBJS   = $(SRCS:.cpp=.o)
 OBJS  += transupp.o
@@ -21,10 +22,11 @@ $(TARGET): $(OBJS)
 	$(CXX) -c $< $(CFLAGS)
 
 main.o: main.cpp pdf.hpp json.hpp
-pdf.o: libjpeg pdf.cpp pdf.hpp json.hpp
+pdf.o: libjpeg pdf.cpp pdf.hpp json.hpp fax.hpp
 crypt.o: crypt.cpp crypt.hpp pdf.hpp
 json.o: json.cpp json.hpp
 dummyfont.o: dummyfont.cpp
+fax.o: fax.cpp fax.hpp
 
 libjpeg:
 	cmake -B libjpeg -S libjpeg-turbo

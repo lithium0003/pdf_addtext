@@ -21,6 +21,7 @@ class object {
         virtual std::string dump() const { return output(); }
 
         friend std::ostream& operator<<(std::ostream& os, const object* obj);
+        friend std::ostream& operator<<(std::ostream& os, const object &obj);
 };
 // boolean values, integers, real numbers, strings, names, arrays, dictionaries, streams, and the null object.
 

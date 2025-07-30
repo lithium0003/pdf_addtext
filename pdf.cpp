@@ -3,6 +3,7 @@
 
 #include "pdf.hpp"
 #include "crypt.hpp"
+#include "fax.hpp"
 
 #include "jpeglib.h"
 #include <zlib.h>
@@ -16,6 +17,11 @@ std::ostream& operator<<(std::ostream& os, const object* obj)
 {
     os << obj->output();
     return os;
+}
+
+std::ostream& operator<<(std::ostream& os, const object &obj)
+{
+    return operator<<(os, &obj);
 }
 
 bool operator<(const name_object& a, const name_object& b) noexcept {
@@ -1605,6 +1611,8 @@ int pdf_file::extract_images(const std::string &target_path)
             auto item = xobject->operator[]<indirect_object>(key)->follow<stream_object>();
             auto subtype = item->get_dict().operator[]<name_object>("Subtype");
             if(subtype && subtype->get_value() == "Image") {
+                std::cout << page_no << ":" << key << std::endl;
+
                 auto filter = item->get_dict().operator[]<object>("Filter");
                 if(filter) {
                     auto afilter = std::dynamic_pointer_cast<name_object>(filter);
@@ -1612,9 +1620,103 @@ int pdf_file::extract_images(const std::string &target_path)
                         output_jpeg(target_path, page_no, key, item->get_stream(), rotate);
                         count++;
                     }
+                    if(afilter && afilter->get_value() == "CCITTFaxDecode") {
+                        int width = item->get_dict().operator[]<integer_number>("Width")->get_value();
+                        int height = item->get_dict().operator[]<integer_number>("Height")->get_value();
+
+                        CCITTFaxDecode_Parms params;
+                        auto decodeParam = item->get_dict().operator[]<dictionary_object>("DecodeParms");
+                        if(decodeParam) {
+                            auto k = decodeParam->operator[]<integer_number>("K");
+                            if(k) {
+                                params.K = k->get_value();
+                            }
+
+                            auto b = decodeParam->operator[]<boolean_value>("EndOfLine");
+                            if(b) {
+                                params.EndOfLine = b->get_value();
+                            }
+
+                            b = decodeParam->operator[]<boolean_value>("EncodedByteAlign");
+                            if(b) {
+                                params.EncodedByteAlign = b->get_value();
+                            }
+
+                            k = decodeParam->operator[]<integer_number>("Columns");
+                            if(k) {
+                                params.Columns = k->get_value();
+                            }
+
+                            k = decodeParam->operator[]<integer_number>("Rows");
+                            if(k) {
+                                params.Rows = k->get_value();
+                            }
+
+                            b = decodeParam->operator[]<boolean_value>("EndOfBlock");
+                            if(b) {
+                                params.EndOfBlock = b->get_value();
+                            }
+
+                            b = decodeParam->operator[]<boolean_value>("BlackIs1");
+                            if(b) {
+                                params.BlackIs1 = b->get_value();
+                            }
+                        }
+                        const auto &values = item->get_stream();
+                        CCITTFaxDecoder decoder(values, params);
+                        decoder.output(target_path, page_no, key, width, height, rotate);
+                        count++;
+                    }
                     auto filters = std::dynamic_pointer_cast<array_object>(filter);
                     if(filters && filters->operator[]<name_object>(0)->get_value() == "DCTDecode") {
                         output_jpeg(target_path, page_no, key, item->get_stream(), rotate);
+                        count++;
+                    }
+                    if(filters && filters->operator[]<name_object>(0)->get_value() == "CCITTFaxDecode") {
+                        int width = item->get_dict().operator[]<integer_number>("Width")->get_value();
+                        int height = item->get_dict().operator[]<integer_number>("Height")->get_value();
+
+                        CCITTFaxDecode_Parms params;
+                        auto decodeParam = item->get_dict().operator[]<array_object>("DecodeParms");
+                        if(decodeParam) {
+                            auto k = decodeParam->operator[]<dictionary_object>(0)->operator[]<integer_number>("K");
+                            if(k) {
+                                params.K = k->get_value();
+                            }
+
+                            auto b = decodeParam->operator[]<dictionary_object>(0)->operator[]<boolean_value>("EndOfLine");
+                            if(b) {
+                                params.EndOfLine = b->get_value();
+                            }
+
+                            b = decodeParam->operator[]<dictionary_object>(0)->operator[]<boolean_value>("EncodedByteAlign");
+                            if(b) {
+                                params.EncodedByteAlign = b->get_value();
+                            }
+
+                            k = decodeParam->operator[]<dictionary_object>(0)->operator[]<integer_number>("Columns");
+                            if(k) {
+                                params.Columns = k->get_value();
+                            }
+
+                            k = decodeParam->operator[]<dictionary_object>(0)->operator[]<integer_number>("Rows");
+                            if(k) {
+                                params.Rows = k->get_value();
+                            }
+
+                            b = decodeParam->operator[]<dictionary_object>(0)->operator[]<boolean_value>("EndOfBlock");
+                            if(b) {
+                                params.EndOfBlock = b->get_value();
+                            }
+
+                            b = decodeParam->operator[]<dictionary_object>(0)->operator[]<boolean_value>("BlackIs1");
+                            if(b) {
+                                params.BlackIs1 = b->get_value();
+                            }
+                        }
+                        const auto &values = item->get_stream();
+                        CCITTFaxDecoder decoder(values, params);
+                        decoder.output(target_path, page_no, key, width, height, rotate);
                         count++;
                     }
                 }
@@ -1626,7 +1728,25 @@ int pdf_file::extract_images(const std::string &target_path)
                     auto color = item->get_dict().operator[]<name_object>("ColorSpace")->get_value();
                     const auto &values = item->get_stream();
                     if(std::all_of(values.begin(), values.end(), [&](auto i) { return i == values[0]; })) continue;
-                    output_gray8(target_path, page_no, key, values, width, height, rotate);
+                    if(bits == 8) {
+                        output_gray8(target_path, page_no, key, values, width, height, rotate);
+                    }
+                    else if(bits == 1) {
+                        std::vector<uint8_t> graybuf;
+                        bit_stream bstream(values);
+                        int width_b = (width + 7) / 8;
+                        width_b *= 8;
+                        auto it = bstream.begin();
+                        for(int y = 0; y < height; y++) {
+                            for(int x = 0; it != bstream.end() && x < width_b; x++) {
+                                uint8_t v = *it++ == 0 ? 0 : 0xff;
+                                if(x < width) {
+                                    graybuf.push_back(v);
+                                }
+                            }
+                        }
+                        output_gray8(target_path, page_no, key, graybuf, width, height, rotate);
+                    }
                     count++;
                 }
             }
