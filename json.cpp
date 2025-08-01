@@ -101,8 +101,11 @@ class json_array: public json_object {
     public:
         json_array(std::vector<std::shared_ptr<json_object>> &init_value): value(init_value) {}
 
-        const std::shared_ptr<json_object>& operator[](size_t idx) const {
-            return value[idx];
+        std::shared_ptr<json_object> operator[](size_t idx) const {
+            if(idx < value.size()) {
+                return value[idx];
+            }
+            return nullptr;
         }
 
         size_t size() const {
@@ -137,8 +140,11 @@ class json_dict: public json_object {
     public:
         json_dict(std::map<std::string, std::shared_ptr<json_object>> &init_value): value(init_value) {}
 
-        const std::shared_ptr<json_object>& operator[](const std::string &key) const {
-            return value.at(key);
+        std::shared_ptr<json_object> operator[](const std::string &key) const {
+            if(value.count(key) > 0) {
+                return value.at(key);
+            }
+            return nullptr;
         }
 
         std::vector<std::string> keys() const {
@@ -379,47 +385,50 @@ std::shared_ptr<json_object> read_json(std::istream &stream)
     return nullptr;
 }
 
-std::vector<charbox> read_boxes(const std::string &filename)
+std::vector<charbox> load_json_boxes(std::shared_ptr<json_object> json)
 {
     std::vector<charbox> ret;
-    std::ifstream ifs(filename);
-    auto json = read_json(ifs);
     if(json) {
-        auto dict = dynamic_cast<json_dict*>(json.get());
+        auto dict = std::dynamic_pointer_cast<json_dict>(json);
         if(!dict) return {};
-        auto array = dynamic_cast<json_array*>((*dict)["box"].get());
+        auto protate = std::dynamic_pointer_cast<json_number>((*dict)["rotate"]);
+        int rotate = 0;
+        if(protate) {
+            rotate = protate->value;
+        }
+        auto array = std::dynamic_pointer_cast<json_array>((*dict)["box"]);
         if(!array) return {};
         auto count = array->size();
         for(int i = 0; i < count; i++) {
-            auto box = dynamic_cast<json_dict*>((*array)[i].get());
+            auto box = std::dynamic_pointer_cast<json_dict>((*array)[i]);
             if(!box) return {};
             
-            auto pcx = dynamic_cast<json_number*>((*box)["cx"].get());
+            auto pcx = std::dynamic_pointer_cast<json_number>((*box)["cx"]);
             float cx = (pcx) ? pcx->value : 0;
-            auto pcy = dynamic_cast<json_number*>((*box)["cy"].get());
+            auto pcy = std::dynamic_pointer_cast<json_number>((*box)["cy"]);
             float cy = (pcy) ? pcy->value : 0;
-            auto pw = dynamic_cast<json_number*>((*box)["w"].get());
+            auto pw = std::dynamic_pointer_cast<json_number>((*box)["w"]);
             float w = (pw) ? pw->value : 0;
-            auto ph = dynamic_cast<json_number*>((*box)["h"].get());
+            auto ph = std::dynamic_pointer_cast<json_number>((*box)["h"]);
             float h = (ph) ? ph->value : 0;
-            auto pruby = dynamic_cast<json_number*>((*box)["ruby"].get());
+            auto pruby = std::dynamic_pointer_cast<json_number>((*box)["ruby"]);
             bool ruby = (pruby) ? pruby->value != 0 : false;
-            auto prubybase = dynamic_cast<json_number*>((*box)["rubybase"].get());
+            auto prubybase = std::dynamic_pointer_cast<json_number>((*box)["rubybase"]);
             bool rubybase = (prubybase) ? prubybase->value != 0 : false;
-            auto pvertical = dynamic_cast<json_number*>((*box)["vertical"].get());
+            auto pvertical = std::dynamic_pointer_cast<json_number>((*box)["vertical"]);
             bool vertical = (pvertical) ? pvertical->value != 0 : false;
-            auto pspace = dynamic_cast<json_number*>((*box)["space"].get());
+            auto pspace = std::dynamic_pointer_cast<json_number>((*box)["space"]);
             bool space = (pspace) ? pspace->value != 0 : false;
-            auto pblockidx = dynamic_cast<json_number*>((*box)["blockidx"].get());
+            auto pblockidx = std::dynamic_pointer_cast<json_number>((*box)["blockidx"]);
             int blockidx = (pblockidx) ? pblockidx->value : 0;
-            auto plineidx = dynamic_cast<json_number*>((*box)["lineidx"].get());
+            auto plineidx = std::dynamic_pointer_cast<json_number>((*box)["lineidx"]);
             int lineidx = (plineidx) ? plineidx->value : 0;
-            auto psubidx = dynamic_cast<json_number*>((*box)["subidx"].get());
+            auto psubidx = std::dynamic_pointer_cast<json_number>((*box)["subidx"]);
             int subidx = (psubidx) ? psubidx->value : 0;
-            auto ptext = dynamic_cast<json_string*>((*box)["text"].get());
+            auto ptext = std::dynamic_pointer_cast<json_string>((*box)["text"]);
             std::string text = (ptext) ? ptext->value : "";
             
-            ret.push_back({ cx, cy, w, h, ruby, rubybase, vertical, space, blockidx, lineidx, subidx, text });
+            ret.push_back({ cx, cy, w, h, ruby, rubybase, vertical, space, blockidx, lineidx, subidx, rotate, text });
         }
 
         std::sort(ret.begin(), ret.end(), [](auto a, auto b){
@@ -428,6 +437,44 @@ std::vector<charbox> read_boxes(const std::string &filename)
             return a.subidx < b.subidx;
         });
         return ret;
+    }
+    return {};
+}
+
+std::map<std::string, std::vector<charbox>> read_all_boxes(const std::string &filename)
+{
+    std::map<std::string, std::vector<charbox>> ret;
+    std::ifstream ifs(filename);
+    auto json = read_json(ifs);
+    if(json) {
+        auto dict = std::dynamic_pointer_cast<json_dict>(json);
+        if(dict) {
+            auto pages = std::dynamic_pointer_cast<json_array>((*dict)["pages"]);
+            for(int i = 0; i < pages->size(); i++) {
+                auto pagedict = std::dynamic_pointer_cast<json_dict>((*pages)[i]);
+                auto name = std::dynamic_pointer_cast<json_string>((*pagedict)["name"]);
+                if(name) {
+                    ret.emplace(name->value, std::move(load_json_boxes(pagedict)));
+                }
+            }
+        }
+    }
+    return ret;
+}
+
+std::vector<charbox> read_boxes(const std::string &filename)
+{
+    std::ifstream ifs(filename);
+    auto json = read_json(ifs);
+    if(json) {
+        auto dict = std::dynamic_pointer_cast<json_dict>(json);
+        if(dict) {
+            auto pages = std::dynamic_pointer_cast<json_array>((*dict)["pages"]);
+            if(pages) {
+                return load_json_boxes((*pages)[0]);
+            }
+            return load_json_boxes(json);
+        }
     }
     return {};
 }

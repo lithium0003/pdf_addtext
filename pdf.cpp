@@ -49,11 +49,28 @@ std::string stream_object::output() const {
         auto dict = _dict;
 
         if(dict.operator[]<array_object>("Filter") == nullptr) {
-            dict.add("Filter", std::shared_ptr<object>(new array_object({ std::shared_ptr<object>(new name_object("FlateDecode")) })));
+            if(dict.operator[]<name_object>("Filter") == nullptr) {
+                dict.add("Filter", std::shared_ptr<object>(new array_object({ std::shared_ptr<object>(new name_object("FlateDecode")) })));
+            }
+            else {
+                auto filter = dict.operator[]<name_object>("Filter");
+                dict.add("Filter", std::shared_ptr<object>(new array_object({ 
+                    std::shared_ptr<object>(new name_object("FlateDecode")), 
+                    filter,
+                })));
+                auto decodeParam = dict.operator[]<dictionary_object>("DecodeParms");
+                if(decodeParam) {
+                    dict.add("DecodeParms", std::shared_ptr<object>(new array_object({ 
+                        std::shared_ptr<object>(new null_object), 
+                        decodeParam,
+                    })));
+                }
+            }
         }
         else {
             dict.operator[]<array_object>("Filter")->insert(0, std::shared_ptr<object>(new name_object("FlateDecode")));
         }
+
         if(dict.operator[]<integer_number>("Length") == nullptr) {
             auto length = outStream.size();
             dict.add("Length", std::shared_ptr<object>(new integer_number(length)));
@@ -145,6 +162,24 @@ extern std::vector<uint8_t> dummyFont;
 
 void pdf_file::prepare_font()
 {
+    if(cidFontType0Object) {
+        return;
+    }
+    for(auto o: body) {
+        auto dict = o->follow<dictionary_object>();
+        if(dict) {
+            auto type = dict->operator[]<name_object>("Type");
+            auto subtype = dict->operator[]<name_object>("Subtype");
+            auto basefont = dict->operator[]<name_object>("BaseFont");
+            if(type && subtype && basefont) {
+                if(type->get_value() == "Font" && subtype->get_value() == "CIDFontType0" && basefont->get_value() == "Dummy") {
+                    cidFontType0Object = o;
+                    return;
+                }
+            }
+        }
+    }
+
     auto dummyFontObject = add_object(std::shared_ptr<object>(new stream_object(dummyFont)));
     dummyFontObject->follow<stream_object>()->get_dict().add("Subtype", std::shared_ptr<object>(new name_object("CIDFontType0C")));
 
@@ -1753,4 +1788,491 @@ int pdf_file::extract_images(const std::string &target_path)
         }
     }
     return count;
+}
+
+int pdf_file::process_json(const std::string &target_path)
+{
+    auto json = read_all_boxes(target_path);
+    if(json.empty()) return 0;
+
+    prepare_font();
+    
+    auto tree = pages->follow<PagesObject>();
+    int page_no = 1;
+    int count = 0;
+    for(auto it = tree->begin(); it != tree->end(); ++it, ++page_no) {
+        auto res = (*it)->operator[]<dictionary_object>("Resources");
+        if(!res) continue;
+        auto rotateobj = (*it)->operator[]<integer_number>("Rotate");
+        int rotate = 0;
+        if(rotateobj) {
+            rotate = rotateobj->get_value();
+        }
+        auto xobject = res->operator[]<dictionary_object>("XObject");
+        if(!xobject) continue;
+
+        for(auto key: xobject->keys()) {
+            auto item = xobject->operator[]<indirect_object>(key)->follow<stream_object>();
+            auto subtype = item->get_dict().operator[]<name_object>("Subtype");
+            if(subtype && subtype->get_value() == "Image") {
+                std::stringstream ss;
+                ss.fill('0');
+                ss << "page" << std::setw(4) << page_no;
+                auto path_jpg = ss.str() + "_" + key + ".jpg";
+                auto path_png = ss.str() + "_" + key + ".png";
+                std::vector<charbox> box;
+                std::string jsonname;
+                if(json.count(path_jpg) > 0) {
+                    jsonname = path_jpg;
+                }
+                else if(json.count(path_png) > 0) {
+                    jsonname = path_png;
+                }
+                else {
+                    continue;
+                }
+
+                box = json[jsonname];
+
+                if(box.size() == 0) {
+                    std::cerr << "OCR json load failed: " << jsonname << std::endl;
+                    continue;
+                }
+
+                int width = item->get_dict().operator[]<integer_number>("Width")->get_value();
+                int height = item->get_dict().operator[]<integer_number>("Height")->get_value();
+
+                std::cout << page_no << ":" << key << " size:" << width << " x " << height << std::endl;
+                if(add_image(*it, key, width, height, rotate, box)) {
+                    count++;
+                }
+            }
+        }
+    }
+    return count;
+}
+
+int pdf_file::process_images(const std::string &target_path)
+{
+    prepare_font();
+
+    auto tree = pages->follow<PagesObject>();
+    int page_no = 1;
+    int count = 0;
+    for(auto it = tree->begin(); it != tree->end(); ++it, ++page_no) {
+        auto res = (*it)->operator[]<dictionary_object>("Resources");
+        if(!res) continue;
+        auto rotateobj = (*it)->operator[]<integer_number>("Rotate");
+        int rotate = 0;
+        if(rotateobj) {
+            rotate = rotateobj->get_value();
+        }
+        auto xobject = res->operator[]<dictionary_object>("XObject");
+        if(!xobject) continue;
+
+        for(auto key: xobject->keys()) {
+            auto item = xobject->operator[]<indirect_object>(key)->follow<stream_object>();
+            auto subtype = item->get_dict().operator[]<name_object>("Subtype");
+            if(subtype && subtype->get_value() == "Image") {
+                std::stringstream ss;
+                ss.fill('0');
+                ss << "page" << std::setw(4) << page_no;
+                std::filesystem::path path_jpg(target_path);
+                std::filesystem::path path_png(target_path);
+                path_jpg /= ss.str() + "_" + key + ".jpg";
+                path_png /= ss.str() + "_" + key + ".png";
+                std::string jsonname;
+                if(std::filesystem::exists(path_jpg)) {
+                    jsonname = path_jpg.string() + ".json";
+                    if(!std::filesystem::exists(jsonname)) {
+                        continue;
+                    }
+                }
+                else if(std::filesystem::exists(path_png)) {
+                    jsonname = path_png.string() + ".json";
+                    if(!std::filesystem::exists(jsonname)) {
+                        continue;
+                    }
+                }
+                else {
+                    continue;
+                }
+
+                auto box = read_boxes(jsonname);
+                if(box.size() == 0) {
+                    std::cerr << "OCR json load failed: " << jsonname << std::endl;
+                }
+
+                int width = item->get_dict().operator[]<integer_number>("Width")->get_value();
+                int height = item->get_dict().operator[]<integer_number>("Height")->get_value();
+
+                std::cout << page_no << ":" << key << " size:" << width << " x " << height << std::endl;
+                if(add_image(*it, key, width, height, rotate, box)) {
+                    count++;
+                }
+            }
+        }
+    }
+    return count;
+}
+
+void rotate90(float &x, float &y, float &w, float &h, float imwidth, float imheight, int rotate)
+{
+    while(rotate >= 360) {
+        rotate -= 360;
+    }
+    while(rotate < 0) {
+        rotate += 360;
+    }
+
+    if(rotate == 0) {
+    }
+    else if(rotate == 90) {
+        auto cx = y;
+        auto cy = imheight - x;
+        x = cx;
+        y = cy;
+        std::swap(w, h);
+    }
+    else if(rotate == 180) {
+        auto cx = imwidth - x;
+        auto cy = imheight - y;
+        x = cx;
+        y = cy;
+    }
+    else if(rotate == 270) {
+        auto cx = imwidth - y;
+        auto cy = x;
+        x = cx;
+        y = cy;
+        std::swap(w, h);
+    }
+}
+
+bool pdf_file::add_image(std::shared_ptr<PageObject> page, const std::string &key, int imwidth, int imheight, int rotate, const std::vector<charbox> &box)
+{
+    auto mediabox = page->operator[]<array_object>("MediaBox");
+    if(!mediabox) return false;
+    double width = 0;
+    double height = 0;
+    if(mediabox->operator[]<integer_number>(2)) {
+        width = mediabox->operator[]<integer_number>(2)->get_value();
+    }
+    if(mediabox->operator[]<real_number>(2)) {
+        width = mediabox->operator[]<real_number>(2)->get_value();
+    }
+    if(mediabox->operator[]<integer_number>(3)) {
+        height = mediabox->operator[]<integer_number>(3)->get_value();
+    }
+    if(mediabox->operator[]<real_number>(3)) {
+        height = mediabox->operator[]<real_number>(3)->get_value();
+    }
+
+    auto content = page->operator[]<indirect_object>("Contents")->follow<stream_object>();
+    if(!content) return false;
+
+    // content->get_dict().print();
+    // std::cout << std::endl;
+
+    auto stream = content->get_stream();
+    std::string work;
+    std::vector<std::string> stack;
+    std::vector<double> cm_matrix;
+    bool found = false;
+    for(char c: stream) {
+        if(is_whitespace(c)) {
+            if(work == "cm" && stack.size() >= 6) {
+                cm_matrix.clear();
+                for(int i = 0; i < 6; i++) {
+                    double v;
+                    std::stringstream(stack[stack.size()-6+i]) >> v;
+                    cm_matrix.push_back(v);
+                }
+                stack.clear();
+            }
+            else if(work == "Do" && stack.size() >= 1 && stack.back() == "/"+key) {
+                found = true;
+                break;
+            }
+            else if(!work.empty()) {
+                stack.push_back(work);
+            }
+            work = "";
+        }
+        else {
+            work += c;
+        }
+    }
+    if(!found) return false;
+
+    double ratio_x = cm_matrix[0] / imwidth;
+    double ratio_y = cm_matrix[3] / imheight;
+    float content_w = cm_matrix[0];
+    float content_h = cm_matrix[3];
+    double offset_x = cm_matrix[4];
+    double offset_y = cm_matrix[5];
+    // std::cout << ratio_x << " " << ratio_y << " " << offset_x << " " << offset_y << std::endl;
+    std::string font_name = "Font"+key;
+
+    std::map<std::string, int> charmap;
+    std::map<int, std::string> reversemap;
+    int count = 1;
+    std::string space_str(" ");
+    reversemap[count] = space_str;
+    charmap[space_str] = count++;
+    int additional_rotate = -1;
+    for(const auto b: box) {
+        if(additional_rotate < 0) {
+            additional_rotate = b.rotate;
+        }
+        if(charmap.count(b.text) > 0) {
+            continue;
+        }
+        reversemap[count] = b.text;
+        charmap[b.text] = count++;
+    }
+    std::vector<std::vector<std::pair<charbox,charbox>>> lines;
+    int blockidx = -1;
+    int lineidx = -1;
+    for(const auto &b: box) {
+        if(b.ruby) continue;
+        if(b.blockidx != blockidx || b.lineidx != lineidx) {
+            blockidx = b.blockidx;
+            lineidx = b.lineidx;
+            lines.emplace_back();
+        }
+
+        // std::cout << b.cx << " " << b.cy << " " << b.w << " " << b.h << " " << b.text << std::endl;
+        auto b2 = b;
+        rotate90(b2.cx, b2.cy, b2.w, b2.h, imwidth, imheight, rotate+additional_rotate);
+        b2.cx = b2.cx * ratio_x;
+        b2.cy = b2.cy * ratio_y;
+        b2.w = b2.w * ratio_x;
+        b2.h = b2.h * ratio_y;
+
+        // std::cout << b2.cx << " " << b2.cy << " " << b2.w << " " << b2.h << " " << b2.text << std::endl;
+
+        lines.back().emplace_back(b,b2);
+    }
+
+    std::stringstream ss;
+    ss << "BT" << std::endl;
+    ss << "q" << std::endl;
+    ss << "/"+font_name + " 1 Tf" << std::endl;
+    ss << "3 Tr" << std::endl;
+    for(const auto &line: lines) {
+        ss << std::dec << std::fixed;
+        float w = 0;
+        float h = 0;
+        int boxcount = 0;
+        for(const auto &b: line) {
+            w = std::max(w, b.second.w);
+            h = std::max(h, b.second.h);
+            boxcount++;
+            if(b.first.subidx > 0 && b.first.space > 0) {
+                boxcount++;
+            }
+        }
+        auto b1 = line.front();
+        auto b2 = line.back();
+        float s = 0;
+        float th = 0;
+        float p1x = std::nan("");
+        float p1y = std::nan("");
+        float p2x = std::nan("");
+        float p2y = std::nan("");
+        float p1xt = std::nan("");
+        float p1yt = std::nan("");
+        float p2xt = std::nan("");
+        float p2yt = std::nan("");
+        for(const auto &b: line) {
+            if(b.first.text == ".") continue;
+            if(b.first.text == ",") continue;
+            if(b.first.text == "'") continue;
+            if(b.first.text == "\"") continue;
+            if(b.first.text == "、") continue;
+            if(b.first.text == "。") continue;
+            if(b.first.text == "“") continue;
+            if(b.first.text == "”") continue;
+            if(std::isnan(p1x)) {
+                p1x = b.first.cx;
+                p1y = b.first.cy;
+                p1xt = b.second.cx;
+                p1yt = b.second.cy;
+            }
+            p2x = b.first.cx;
+            p2y = b.first.cy;
+            p2xt = b.second.cx;
+            p2yt = b.second.cy;
+        }
+
+        if(b1.first.vertical) {
+            s = b2.first.cy + b2.first.h / 2 - (b1.first.cy - b1.first.h / 2);
+            s *= ratio_y;
+            // std::cout << "v " << p1x << "," << p1y << "," << p2x << "," << p2y <<  std::endl;
+            if(std::isnan(p1x)) {
+                th = -90.0 / 180.0 * 3.14159;
+            }
+            else {
+                th = atan2(p2x - p1x, p2y - p1y) - 90.0 / 180.0 * 3.14159;
+            }
+        }
+        else {
+            s = b2.first.cx + b2.first.w / 2 - (b1.first.cx - b1.first.w / 2);
+            s *= ratio_x;
+            // std::cout << "h " << p1x << "," << p1y << "," << p2x << "," << p2y <<  std::endl;
+            if(std::isnan(p1x)) {
+                th = 0;
+            }
+            else {
+                th = atan2(p2y - p1y, p2x - p1x);
+            }
+        }
+        // std::cout << th / 3.14159 * 180 << std::endl;
+        // std::cout << rotate  << "," << additional_rotate << std::endl;
+        th += (rotate + additional_rotate) / 180.0 * 3.14159;
+        // std::cout << th / 3.14159 * 180 << std::endl;
+
+        s /= boxcount;
+        if(b1.first.vertical) {
+            s /= h;
+        }
+        else {
+            s /= w;
+        }
+        float tz = s * 100;
+        if(b1.first.vertical) {
+            float dx = -w / 2;
+            float dy = -b1.second.h / 2;
+            float tmp1 = 0;
+            float tmp2 = 0;
+            rotate90(dx, dy, tmp1, tmp2, 0, 0, rotate+additional_rotate);
+            float tx = p1xt + dx + offset_x;
+            float ty = content_h - (b1.second.cy + dy) + offset_y;
+
+            ss << h * cosf(th);
+            ss << " ";
+            ss << h * sinf(th);
+            ss << " ";
+            ss << -h * sinf(th);
+            ss << " ";
+            ss << -h * cosf(th);
+            ss << " ";
+            ss << tx;
+            ss << " ";
+            ss << ty;
+            ss << " ";
+            ss << "Tm" << std::endl;
+
+            // std::cout << tx << "," << ty << std::endl;
+        }
+        else {
+            float dx = -b1.second.w / 2;
+            float dy = h / 4;
+            float tmp1 = 0;
+            float tmp2 = 0;
+            rotate90(dx, dy, tmp1, tmp2, 0, 0, rotate+additional_rotate);
+            float tx = b1.second.cx + dx + offset_x;
+            float ty = content_h - (p1yt + dy) + offset_y;
+       
+            ss << w * cosf(th);
+            ss << " ";
+            ss << w * sinf(th);
+            ss << " ";
+            ss << -w * sinf(th);
+            ss << " ";
+            ss << w * cosf(th);
+            ss << " ";
+            ss << tx;
+            ss << " ";
+            ss << ty;
+            ss << " ";
+            ss << "Tm" << std::endl;
+
+            // std::cout << tx << "," << ty << std::endl;
+        }
+        ss << tz << " " << "Tz" << std::endl;
+        ss << "<";
+        auto prevfill = ss.fill();
+        ss.fill('0');
+        for(const auto &b: line) {
+            if(b.first.subidx > 0 && b.first.space > 0) {
+                ss << std::setw(4) << std::hex << charmap[space_str];
+            }
+            ss << std::setw(4) << std::hex << charmap[b.first.text];
+        }
+        ss.fill(prevfill);
+        ss << "> Tj" << std::endl;
+    }
+    ss << "Q" << std::endl;
+    ss << "ET" << std::endl;
+    std::string str = ss.str();
+
+    std::copy(str.begin(), str.end(), std::back_inserter(stream));
+    content->set_stream(stream);
+
+    auto type0FontObject = add_object(std::shared_ptr<object>(new dictionary_object()));
+    type0FontObject->follow<dictionary_object>()->add("Type", std::shared_ptr<object>(new name_object("Font")));
+    type0FontObject->follow<dictionary_object>()->add("Subtype", std::shared_ptr<object>(new name_object("Type0")));
+    type0FontObject->follow<dictionary_object>()->add("BaseFont", std::shared_ptr<object>(new name_object("Dummy")));
+    type0FontObject->follow<dictionary_object>()->add("Encoding", std::shared_ptr<object>(new name_object("Identity-H")));
+    type0FontObject->follow<dictionary_object>()->add("DescendantFonts", std::shared_ptr<object>(new array_object({cidFontType0Object})));
+    {
+        std::stringstream ss;
+        ss << "/CIDInit /ProcSet findresource begin" << std::endl;
+        ss << "12 dict begin" << std::endl;
+        ss << "begincmap" << std::endl;
+        ss << "/CIDSystemInfo <<" << std::endl;
+        ss << " /Registry (Adobe) def" << std::endl;
+        ss << " /Ordering (Identity) def" << std::endl;
+        ss << " /Supplement 0 def" << std::endl;
+        ss << ">> def" << std::endl;
+        ss << "/CMapName /Identity-H def" << std::endl;
+        ss << "/CMapType 1 def" << std::endl;
+        ss << "1 begincodespacerange" << std::endl;
+        ss << " <0000> <FFFF>" << std::endl;
+        ss << "endcodespacerange" << std::endl;
+        ss << std::endl;
+
+        for(int i = 1; i < count; i+=100) {
+            int j = (count - i > 100) ? 100 : count - i;
+            ss << std::dec << j << " beginbfchar" << std::endl;
+            for(int k = i; k < i+j; k++) {
+                auto prevfill = ss.fill();
+                ss.fill('0');
+                ss << " <";
+                ss << std::setw(4) << std::hex << k;
+                ss << "> <";
+                auto utf16str = UCS_to_utf16(utf8_to_UCS(reversemap[k]));
+                for(const auto c: utf16str) {
+                    ss << std::setw(4) << std::hex << c;
+                }
+                ss << ">" << std::endl;
+                ss.fill(prevfill);
+            }
+            ss << "endbfchar" << std::endl;
+            ss << std::endl;
+        }
+
+        ss << "endcmap" << std::endl;
+        ss << "CMapName currentdict /CMap defineresource pop" << std::endl;
+        ss << "end" << std::endl;
+        ss << "end" << std::endl;
+
+        std::string str = ss.str();
+        std::vector<uint8_t> stream(str.begin(), str.end());
+        auto toUnicodeObject = add_object(std::shared_ptr<object>(new stream_object(stream)));        
+        type0FontObject->follow<dictionary_object>()->add("ToUnicode", toUnicodeObject);
+    }
+    auto fobj = page->operator[]<dictionary_object>("Resources")->operator[]<dictionary_object>("Font");
+    if(fobj) {
+        fobj->add(font_name, type0FontObject);
+    }
+    else {
+        auto fontObject = std::shared_ptr<dictionary_object>(new dictionary_object());
+        fontObject->add(font_name, type0FontObject);
+        page->operator[]<dictionary_object>("Resources")->add("Font", fontObject);
+    }
+
+    return true;
 }

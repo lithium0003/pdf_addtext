@@ -70,10 +70,45 @@ int extract(int argc, char **argv)
     return 0;
 }
 
+int process(int argc, char **argv)
+{
+    if (argc < 4) {
+        std::cout << "usage: " << argv[0] << " process (output.pdf) (intput.pdf) (input_dir)" << std::endl;
+        return 0;
+    }
+
+    std::string outputname(argv[2]);
+    pdf_file pdf(argv[3]);
+    std::string target_path;
+
+    if(argc > 4) {
+        target_path = argv[4];
+    }
+    else {
+        target_path = ".";
+    }
+
+    if(target_path.size() > 5 && target_path.substr(target_path.size()-5) == ".json") {
+        int count = pdf.process_json(target_path);
+        std::cout << "process images: " << count << std::endl;
+    }
+    else {
+        int count = pdf.process_images(target_path);
+        std::cout << "process images: " << count << std::endl;
+    }
+
+    std::ofstream output(outputname, std::ios::binary);
+    output << pdf.dump();
+
+    return 0;
+}
+
 void print_usage(char *argv0)
 {
     std::cout << "usage: " << argv0 << " create (output.pdf) (input1.jpg) [(input2.jpg) ...]" << std::endl;
     std::cout << "usage: " << argv0 << " extract (target.pdf) (output_dir)" << std::endl;
+    std::cout << "usage: " << argv0 << " process (output.pdf) (intput.pdf) (input_dir)" << std::endl;
+    std::cout << "usage: " << argv0 << " process (output.pdf) (intput.pdf) (input_all.json)" << std::endl;
 }
 
 int main(int argc, char **argv)
@@ -89,6 +124,9 @@ int main(int argc, char **argv)
     }
     if(command == "extract") {
         return extract(argc, argv);
+    }
+    if(command == "process") {
+        return process(argc, argv);
     }
 
     std::cout << "command not found: " << command << std::endl;

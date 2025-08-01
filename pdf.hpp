@@ -446,7 +446,7 @@ class stream_object: public direct_object {
         std::vector<uint8_t> _stream;
 
     public:
-        bool zlib_deflate = false;
+        bool zlib_deflate = true;
 
         stream_object() {}
 
@@ -456,10 +456,8 @@ class stream_object: public direct_object {
         stream_object(const dictionary_object &dict, const std::vector<uint8_t> &stream)
             : _dict(dict), _stream(stream) {
             decode_stream(_dict, _stream);
-            if(_dict.operator[]<integer_number>("Length") == nullptr) {
-                auto length = _stream.size();
-                _dict.add("Length", std::shared_ptr<object>(new integer_number(length)));
-            }
+            auto length = _stream.size();
+            _dict.add("Length", std::shared_ptr<object>(new integer_number(length)));
         }
 
         dictionary_object& get_dict() {
@@ -468,6 +466,12 @@ class stream_object: public direct_object {
 
         std::vector<uint8_t>& get_stream() {
             return _stream;
+        }
+
+        void set_stream(const std::vector<uint8_t>& stream) {
+            _stream = stream;
+            auto length = _stream.size();
+            _dict.add("Length", std::shared_ptr<object>(new integer_number(length)));
         }
 
         std::string output() const override;
@@ -714,6 +718,9 @@ class pdf_file {
         pdf_file(const std::string &filename);
         std::string dump() const;
         std::shared_ptr<PageObject> add_image(const std::string &jpgname, const std::vector<charbox> &box);
+        bool add_image(std::shared_ptr<PageObject> page, const std::string &key, int imwidth, int imheight, int rotate, const std::vector<charbox> &box);
         int extract_images(const std::string &target_path);
+        int process_images(const std::string &target_path);
+        int process_json(const std::string &target_path);
 };
 
