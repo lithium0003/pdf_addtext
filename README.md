@@ -19,7 +19,8 @@ And compile.
 make
 ```
 
-## Run(create new PDF)
+## Run
+### create new PDF
 Prepare JPEG image(s), for example "test1.jpg".
 And prepare OCR result file, json file, for example this file name should be "test1.jpg.json".
 
@@ -30,10 +31,30 @@ and output test1.pdf
 
 In Sample folder, OCR result json file sample and sample result pdf.
 
-## Run(extract images from existing PDF)
+### extract images from existing PDF
 For pdf file with image only, first extract images form PDF.
 
 ```
-./pdf_addtext extract some.pdf tmpoutput_dir
+./pdf_addtext extract input.pdf output_dir
 ```
-output images are in tmpoutput_dir.
+output images are in output_dir.
+
+### OCR
+Process OCR by any OCR engine, find text and its position.
+JSON file format reference is in Sample folder.
+
+### insert text to existing PDF (a json file per a image)
+JSON files for extracted images; which name is appending ".json" (image: page0001_Im1.png to json: page0001_Im1.png.json)
+are placed in output_dir folder, and insert text data to existing PDF.
+
+```
+./pdf_addtext process output.pdf intput.pdf image_dir
+```
+
+### insert text to existing PDF (one json file)
+Prepare a JSON file which has OCR result and image file name for all images,
+and insert text data to existing PDF.
+
+```
+./pdf_addtext process output.pdf intput.pdf input_all.json
+```
