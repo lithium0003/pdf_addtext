@@ -446,7 +446,7 @@ class stream_object: public direct_object {
         std::vector<uint8_t> _stream;
 
     public:
-        bool zlib_deflate = false;
+        bool zlib_deflate = true;
 
         stream_object() {}
 
