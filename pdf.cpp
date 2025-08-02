@@ -700,13 +700,20 @@ pdf_file::pdf_file(const std::string &filename)
     }
 
     auto encrypt_obj = trailer.operator[]<indirect_object>("Encrypt");
-    if(encrypt_obj) {
+    auto id_obj = trailer.operator[]<array_object>("ID");
+    if(encrypt_obj && id_obj) {
+        auto id1_obj = id_obj->operator[]<string_object>(0);
+        std::vector<uint8_t> id1;
+        if(id1_obj) {
+            auto str = id1_obj->get_value();
+            std::copy(str.begin(), str.end(), std::back_inserter(id1));
+        }
         ifs.seekg(body_offsets[encrypt_obj->number()], std::ios_base::beg);
         auto obj = parse_object(ifs);
         if(obj) {
             auto dict = std::dynamic_pointer_cast<indirect_object>(obj)->follow<dictionary_object>();
             if(dict) {
-                encrypt = std::shared_ptr<object>(new crypt_object(*dict));
+                encrypt = std::shared_ptr<object>(new crypt_object(*dict, id1));
                 trailer.remove("Encrypt");
             }
         }
@@ -757,7 +764,7 @@ bool is_delimiter(char c)
 
 }
 
-std::shared_ptr<hexadecimal_string> pdf_file::parse_hexstring(std::istream &ss)
+std::shared_ptr<hexadecimal_string> pdf_file::parse_hexstring(std::istream &ss, int obj_num, int gen_num)
 {
     std::string result = "";
     int c = 0;
@@ -800,7 +807,7 @@ std::shared_ptr<hexadecimal_string> pdf_file::parse_hexstring(std::istream &ss)
     return std::shared_ptr<hexadecimal_string>(new hexadecimal_string(result));
 }
 
-std::shared_ptr<literal_string> pdf_file::parse_literal(std::istream &ss)
+std::shared_ptr<literal_string> pdf_file::parse_literal(std::istream &ss, int obj_num, int gen_num)
 {
     std::string result = "";
     bool isescape = false;
@@ -999,7 +1006,7 @@ std::shared_ptr<dictionary_object> pdf_file::parse_dictionary(std::stringstream 
     return dictobj;
 }
 
-std::shared_ptr<object> pdf_file::parse_object(std::istream &ss)
+std::shared_ptr<object> pdf_file::parse_object(std::istream &ss, int obj_num, int gen_num)
 {
     enum state {
         array,
@@ -1069,7 +1076,7 @@ std::shared_ptr<object> pdf_file::parse_object(std::istream &ss)
                 std::string buf = bs.str();
                 buf = buf.substr(1, buf.size()-2);
                 std::stringstream bs2(buf);
-                return parse_literal(bs2);
+                return parse_literal(bs2, obj_num, gen_num);
             }                        
         }
         else if (!current_state.empty() && current_state.back() == literalstring) {
@@ -1109,7 +1116,7 @@ std::shared_ptr<object> pdf_file::parse_object(std::istream &ss)
         else if (!current_state.empty() && current_state.back() == hexstring && c == '>') {
             current_state.pop_back();
             if(current_state.empty()) {
-                return parse_hexstring(bs);
+                return parse_hexstring(bs, obj_num, gen_num);
             }            
         }
         else if (!current_state.empty() && current_state.back() == dictionary && c == '>') {
@@ -1156,7 +1163,7 @@ std::shared_ptr<object> pdf_file::parse_object(std::istream &ss)
             std::string str3;
             std::stringstream(bs.str()) >> obj_num >> gen_num;
             ss.ignore(2);
-            return register_object(ss, obj_num);
+            return register_object(ss, obj_num, gen_num);
         }
         else if (!current_state.empty() && current_state.back() == maybeobj3) {
             current_state.pop_back();
@@ -1238,13 +1245,13 @@ std::shared_ptr<indirect_object> pdf_file::ref_object(int objnum)
     return body[idx];
 }
 
-std::shared_ptr<indirect_object> pdf_file::register_object(std::istream &ss, int obj_num)
+std::shared_ptr<indirect_object> pdf_file::register_object(std::istream &ss, int obj_num, int gen_num)
 {
     if(ref_object(obj_num)->isLoaded()) {
         return ref_object(obj_num);
     }
 
-    auto obj = parse_object(ss);
+    auto obj = parse_object(ss, obj_num, gen_num);
     if(!obj) throw std::runtime_error("parse error");
 
     // std::cout << "register_object " << obj_num << std::endl;
@@ -1285,7 +1292,7 @@ std::shared_ptr<indirect_object> pdf_file::register_object(std::istream &ss, int
                     ss >> keyword;
                     if(keyword.substr(0, 6) == "endobj") {
                         if(encrypt) {
-                            stream = std::dynamic_pointer_cast<crypt_object>(encrypt)->decode_stream(stream);
+                            stream = std::dynamic_pointer_cast<crypt_object>(encrypt)->decode_stream(stream, obj_num, gen_num);
                         }
 
                         auto streamobj = std::shared_ptr<object>(new stream_object(*dict, stream));

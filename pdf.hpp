@@ -446,7 +446,7 @@ class stream_object: public direct_object {
         std::vector<uint8_t> _stream;
 
     public:
-        bool zlib_deflate = true;
+        bool zlib_deflate = false;
 
         stream_object() {}
 
@@ -702,14 +702,14 @@ class pdf_file {
         std::shared_ptr<PageObject> new_page();
         std::shared_ptr<indirect_object> add_object(std::shared_ptr<object> obj);
         std::shared_ptr<indirect_object> ref_object(int objnum);
-        std::shared_ptr<object> parse_object(std::istream &ss);
-        std::shared_ptr<hexadecimal_string> parse_hexstring(std::istream &ss);
-        std::shared_ptr<literal_string> parse_literal(std::istream &ss);
+        std::shared_ptr<object> parse_object(std::istream &ss, int obj_num = 0, int gen_num = 0);
+        std::shared_ptr<hexadecimal_string> parse_hexstring(std::istream &ss, int obj_num, int gen_num);
+        std::shared_ptr<literal_string> parse_literal(std::istream &ss, int obj_num, int gen_num);
         std::shared_ptr<name_object> parse_name(std::istream &ss);
         std::shared_ptr<object> parse_numeric(std::istream &is, std::istream &ss);
         std::shared_ptr<array_object> parse_array(std::stringstream &ss);
         std::shared_ptr<dictionary_object> parse_dictionary(std::stringstream &ss);
-        std::shared_ptr<indirect_object> register_object(std::istream &ss, int obj_num);
+        std::shared_ptr<indirect_object> register_object(std::istream &ss, int obj_num, int gen_num);
 
         std::shared_ptr<object> encrypt;
 

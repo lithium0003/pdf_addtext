@@ -10,6 +10,22 @@
 
 #include "pdf.hpp"
 
+int copy(int argc, char **argv)
+{
+    if (argc != 4) {
+        std::cout << "usage: " << argv[0] << " copy (dest.pdf) (src.pdf)" << std::endl;
+        return 0;
+    }
+
+    std::string outputname(argv[2]);
+    pdf_file pdf(argv[3]);
+
+    std::ofstream output(outputname, std::ios::binary);
+    output << pdf.dump();
+
+    return 0;
+}
+
 int create(int argc, char **argv)
 {
     if (argc < 3) {
@@ -119,6 +135,9 @@ int main(int argc, char **argv)
     }
     std::string command(argv[1]);
 
+    if(command == "copy") {
+        return copy(argc, argv);
+    }
     if(command == "create") {
         return create(argc, argv);
     }
