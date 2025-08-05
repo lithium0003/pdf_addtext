@@ -123,9 +123,9 @@ class string_object: public direct_object {
             _value = new_value;
         }
 
-        std::string debug() const override { 
+        std::string debug() const override {
             std::stringstream ss;
-            for(const auto c: _value) {
+            for(const auto &c: _value) {
                 if(c >= 0x20 && c < 0x7f) {
                     ss << c;
                 }
@@ -150,7 +150,7 @@ class literal_string: public string_object {
             std::string result;
             const char table[] = "01234567";
             int parenthesis_pair = 0;
-            for(const auto c: _value) {
+            for(const auto &c: _value) {
                 if(c == '(') {
                     parenthesis_pair++;
                 }
@@ -160,7 +160,7 @@ class literal_string: public string_object {
             }
 
             int parenthesis = 0;
-            for(const auto c: _value) {
+            for(const auto &c: _value) {
                 int ci = *(unsigned char *)&c;
                 if(parenthesis_pair + parenthesis < 0) {
                     if(c == ')') {
@@ -222,7 +222,7 @@ class hexadecimal_string: public string_object {
         std::string output() const override { 
             std::string result;
             const char table[] = "0123456789ABCDEF";
-            for(const auto c: _value) {
+            for(const auto &c: _value) {
                 int ci = *(unsigned char *)&c;
                 int code = ci;
                 int c0 = code % 16;
@@ -253,7 +253,7 @@ class name_object: public direct_object {
         std::string output() const override { 
             std::string result;
             const char table[] = "0123456789ABCDEF";
-            for(const auto c: _value) {
+            for(const auto &c: _value) {
                 int ci = *(unsigned char *)&c;
                 if(c == '#') {
                     result += "#23";
@@ -275,8 +275,64 @@ class name_object: public direct_object {
             return "/" + result;
         }
 
-        std::string debug() const override { 
+        std::string debug() const override {
             return "/" + _value;
+        }
+};
+
+class indirect_object: public object {
+    private:
+        unsigned int _number;
+        unsigned int _generation;
+        std::shared_ptr<object> _target;
+    
+    public:
+        indirect_object(unsigned int num, unsigned int gen, std::shared_ptr<object> target)
+            : _number(num), _generation(gen), _target(target) {}
+
+        indirect_object(unsigned int num)
+            : _number(num), _generation(0), _target(nullptr) {}
+
+        template<typename T>
+        std::shared_ptr<T> follow() {
+            return std::dynamic_pointer_cast<T>(_target);
+        }
+
+        bool isLoaded() {
+            return _target.get() != nullptr;
+        }
+
+        void set(std::shared_ptr<object> target) {
+            _target = target;
+        }
+
+        inline unsigned int number() const {
+            return _number;
+        }
+
+        std::string dump() const override {
+            std::stringstream ss;
+            ss << _number << " " << _generation << " obj\r\n";
+            if(_target) {
+                ss << _target->dump();
+            }
+            else {
+                ss << "null";
+            }
+            ss << "\r\nendobj\r\n";
+            return ss.str();
+        }
+
+        std::string output() const override {
+            std::stringstream ss;
+            ss << _number << " " << _generation << " R";
+            return ss.str();
+        }
+
+        std::string debug() const override {
+            std::stringstream ss;
+            ss << _number << " " << _generation << " R";
+            return ss.str();
         }
 };
 
@@ -291,11 +347,21 @@ class array_object: public direct_object {
         template<typename T>
         std::shared_ptr<T> operator[](std::size_t idx) const {
             if(idx < _value.size()) {
+                if(!std::is_same_v<T, indirect_object>) {
+                    auto obj = std::dynamic_pointer_cast<indirect_object>(_value[idx]);
+                    if(obj) {
+                        return obj->follow<T>();
+                    }
+                }
                 return std::dynamic_pointer_cast<T>(_value[idx]);
             }
             else {
                 return nullptr;
             }
+        }
+
+        size_t size() const {
+            return _value.size();
         }
 
         void add(std::shared_ptr<object> value) {
@@ -321,7 +387,7 @@ class array_object: public direct_object {
             return "[" + result + "]";
         }
 
-        std::string debug() const override { 
+        std::string debug() const override {
             std::string result;
             for(int i = 0; i < _value.size(); i++) {
                 std::stringstream buf(_value[i]->debug() + "\n");
@@ -343,7 +409,7 @@ class dictionary_object: public direct_object {
         dictionary_object() {}
 
         dictionary_object(const std::map<name_object, std::shared_ptr<object>> &value) {
-            for(const auto item: value) {
+            for(const auto &item: value) {
                 _keys.push_back(item.first);
                 _value.push_back(item.second);
             }
@@ -353,6 +419,12 @@ class dictionary_object: public direct_object {
         std::shared_ptr<T> operator[](const std::string key) const {
             for(int i = 0; i < _keys.size(); i++) {
                 if(_keys[i].get_value() == key) {
+                    if(!std::is_same_v<T, indirect_object>) {
+                        auto obj = std::dynamic_pointer_cast<indirect_object>(_value[i]);
+                        if(obj) {
+                            return obj->follow<T>();
+                        }
+                    }
                     return std::dynamic_pointer_cast<T>(_value[i]);
                 }
             }
@@ -419,7 +491,7 @@ class dictionary_object: public direct_object {
             return "<<" + result + ">>";
         }
 
-        std::string debug() const override { 
+        std::string debug() const override {
             std::string result;
             for(int i = 0; i < _value.size(); i++) {
                 auto keystr = " " + _keys[i].debug();
@@ -457,7 +529,7 @@ class stream_object: public direct_object {
             : _dict(dict), _stream(stream) {
             decode_stream(_dict, _stream);
             auto length = _stream.size();
-            _dict.add("Length", std::shared_ptr<object>(new integer_number(length)));
+            _dict.add("Length", std::shared_ptr<object>(new integer_number((int)length)));
         }
 
         dictionary_object& get_dict() {
@@ -471,12 +543,12 @@ class stream_object: public direct_object {
         void set_stream(const std::vector<uint8_t>& stream) {
             _stream = stream;
             auto length = _stream.size();
-            _dict.add("Length", std::shared_ptr<object>(new integer_number(length)));
+            _dict.add("Length", std::shared_ptr<object>(new integer_number((int)length)));
         }
 
         std::string output() const override;
 
-        std::string debug() const override { 
+        std::string debug() const override {
             std::stringstream ss;
             ss << _dict.debug() << std::endl;
             ss << "stream " << _stream.size() << "bytes" << std::endl;
@@ -502,62 +574,6 @@ class null_object: public direct_object {
     public:
         std::string output() const override {
             return "null";
-        }
-};
-
-class indirect_object: public object {
-    private:
-        unsigned int _number;
-        unsigned int _generation;
-        std::shared_ptr<object> _target;
-    
-    public:
-        indirect_object(unsigned int num, unsigned int gen, std::shared_ptr<object> target)
-            : _number(num), _generation(gen), _target(target) {}
-
-        indirect_object(unsigned int num)
-            : _number(num), _generation(0), _target(nullptr) {}
-
-        template<typename T>
-        std::shared_ptr<T> follow() {
-            return std::dynamic_pointer_cast<T>(_target);
-        }
-
-        bool isLoaded() {
-            return _target != nullptr;
-        }
-
-        void set(std::shared_ptr<object> target) {
-            _target = target;
-        }
-
-        inline unsigned int number() const {
-            return _number;
-        }
-
-        std::string dump() const override {
-            std::stringstream ss;
-            ss << _number << " " << _generation << " obj\r\n";
-            if(_target) {
-                ss << _target->dump();
-            }
-            else {
-                ss << "null";
-            }
-            ss << "\r\nendobj\r\n";
-            return ss.str();
-        }
-
-        std::string output() const override {
-            std::stringstream ss;
-            ss << _number << " " << _generation << " R";
-            return ss.str();
-        }
-
-        std::string debug() const override { 
-            std::stringstream ss;
-            ss << _number << " " << _generation << " R";
-            return ss.str();
         }
 };
 
@@ -591,6 +607,45 @@ class JpegImageObject: public stream_object {
         int height;
 
         JpegImageObject(const std::string &filename);
+};
+
+class IndexedColorSpace: public array_object {
+    private:
+        int hi_value = 0;
+        std::vector<uint8_t> lookup_table;
+
+    public:
+        bool isValid = false;
+
+        IndexedColorSpace(const array_object &base): array_object(base) {
+            if(size() != 4) return;
+            auto name = operator[]<name_object>(0);
+            if(!name || name->get_value() != "Indexed") return;
+
+            auto baseObject = operator[]<object>(1);
+
+            auto hival = operator[]<integer_number>(2);
+            if(!hival) return;
+            hi_value = std::min(255, hival->get_value());
+
+            auto lookup = operator[]<stream_object>(3);
+            if(!lookup) return;
+            lookup_table = lookup->get_stream();
+            if(lookup_table.size() != 3 * (1 + hi_value)) return;
+
+            isValid = true;
+        }
+
+        void lookup(uint8_t i, uint8_t &r, uint8_t &g, uint8_t &b) {
+            if(i <= hi_value) {
+                r = lookup_table[i * 3 + 0];
+                g = lookup_table[i * 3 + 1];
+                b = lookup_table[i * 3 + 2];
+            }
+            else {
+                r = g = b = 0;
+            }
+        }
 };
 
 class PageObject: public dictionary_object {
@@ -697,6 +752,8 @@ class pdf_file {
         std::shared_ptr<indirect_object> root;
         std::shared_ptr<indirect_object> pages;
         std::shared_ptr<indirect_object> cidFontType0Object;
+        std::shared_ptr<object> encrypt;
+        std::vector<int64_t> body_offsets;
 
         void prepare_font();
         std::shared_ptr<PageObject> new_page();
@@ -707,11 +764,10 @@ class pdf_file {
         std::shared_ptr<literal_string> parse_literal(std::istream &ss, int obj_num, int gen_num);
         std::shared_ptr<name_object> parse_name(std::istream &ss);
         std::shared_ptr<object> parse_numeric(std::istream &is, std::istream &ss);
-        std::shared_ptr<array_object> parse_array(std::stringstream &ss);
-        std::shared_ptr<dictionary_object> parse_dictionary(std::stringstream &ss);
+        std::shared_ptr<array_object> parse_array(std::istream &ss);
+        std::shared_ptr<dictionary_object> parse_dictionary(std::istream &ss);
         std::shared_ptr<indirect_object> register_object(std::istream &ss, int obj_num, int gen_num);
-
-        std::shared_ptr<object> encrypt;
+        void register_ObjectStream(std::shared_ptr<stream_object> objstream);
 
     public:
         pdf_file();

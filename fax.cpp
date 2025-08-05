@@ -476,7 +476,6 @@ CCITTFaxDecoder::CCITTFaxDecoder(const std::vector<uint8_t> &data, const CCITTFa
             int blackPixels = 0;
             while (codingLine[codingPos] < columns) {
                 int code1 = 0;
-                int code2 = 0;
                 int code3 = 0;
                 if (blackPixels) {
                     do {
@@ -651,7 +650,7 @@ void CCITTFaxDecoder::output(const std::string &target_path, int page_no, const 
         for (int y = 0; y < height; y++) {
             png_bytep row = rows[y];
             for (int x = 0; x < width; x++) {
-                *row++ = outbufer[(height - 1 - y)*width + x];
+                *row++ = outbufer[(height - 1 - y)*width + (width - 1 - x)];
             }
         }
     }

@@ -115,7 +115,7 @@ class json_array: public json_object {
         std::string output() const override {
             std::stringstream ss;
             int count = 0;
-            for(const auto v: value) {
+            for(const auto &v: value) {
                 ss << v->output();
                 if(count++ < value.size()-1) {
                     ss << "," << std::endl;
@@ -149,7 +149,7 @@ class json_dict: public json_object {
 
         std::vector<std::string> keys() const {
             std::vector<std::string> ret;
-            for(const auto v: value) {
+            for(const auto &v: value) {
                 ret.push_back(v.first);
             }
             return ret;
@@ -158,7 +158,7 @@ class json_dict: public json_object {
         std::string output() const override {
             std::stringstream ss;
             int count = 0;
-            for(const auto v: value) {
+            for(const auto &v: value) {
                 ss << json_string(v.first).output() << ": " << v.second->output();
                 if(count++ < value.size()-1) {
                     ss << "," << std::endl;
@@ -443,9 +443,14 @@ std::vector<charbox> load_json_boxes(std::shared_ptr<json_object> json)
 
 std::map<std::string, std::vector<charbox>> read_all_boxes(const std::string &filename)
 {
-    std::map<std::string, std::vector<charbox>> ret;
     std::ifstream ifs(filename);
-    auto json = read_json(ifs);
+    return read_all_boxes(ifs);
+}
+
+std::map<std::string, std::vector<charbox>> read_all_boxes(std::istream &is)
+{
+    std::map<std::string, std::vector<charbox>> ret;
+    auto json = read_json(is);
     if(json) {
         auto dict = std::dynamic_pointer_cast<json_dict>(json);
         if(dict) {
@@ -454,7 +459,7 @@ std::map<std::string, std::vector<charbox>> read_all_boxes(const std::string &fi
                 auto pagedict = std::dynamic_pointer_cast<json_dict>((*pages)[i]);
                 auto name = std::dynamic_pointer_cast<json_string>((*pagedict)["name"]);
                 if(name) {
-                    ret.emplace(name->value, std::move(load_json_boxes(pagedict)));
+                    ret.emplace(name->value, load_json_boxes(pagedict));
                 }
             }
         }
@@ -465,7 +470,12 @@ std::map<std::string, std::vector<charbox>> read_all_boxes(const std::string &fi
 std::vector<charbox> read_boxes(const std::string &filename)
 {
     std::ifstream ifs(filename);
-    auto json = read_json(ifs);
+    return read_boxes(ifs);
+}
+
+std::vector<charbox> read_boxes(std::istream &is)
+{
+    auto json = read_json(is);
     if(json) {
         auto dict = std::dynamic_pointer_cast<json_dict>(json);
         if(dict) {

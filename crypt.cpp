@@ -42,7 +42,7 @@ class RC4 {
                 S[i] = i;
             }
             int j = 0;
-            int len = key.size();
+            int len = (int)key.size();
             for(int i = 0; i < 256; i++) {
                 j = (j + S[i] + key[i % len]) % 256;
                 std::swap(S[i], S[j]);
@@ -372,7 +372,7 @@ crypt_object::crypt_object(const dictionary_object& base, const std::vector<uint
     }
     else if(V == 5) {
         file_encryption_key = verify_v5(password, R, O, U, OE, UE);
-        std::cout << "verify: " << verify_perms(file_encryption_key, Perms, P, true) << std::endl;
+        std::cout << "verify: " << verify_perms(file_encryption_key, Perms, P, EncryptMetadata) << std::endl;
     }
 }
 

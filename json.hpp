@@ -2,6 +2,7 @@
 #include <string>
 #include <vector>
 #include <map>
+#include <istream>
 
 struct charbox {
     float cx;
@@ -20,4 +21,6 @@ struct charbox {
 };
 
 std::vector<charbox> read_boxes(const std::string &filename);
+std::vector<charbox> read_boxes(std::istream &is);
 std::map<std::string, std::vector<charbox>> read_all_boxes(const std::string &filename);
+std::map<std::string, std::vector<charbox>> read_all_boxes(std::istream &is);
