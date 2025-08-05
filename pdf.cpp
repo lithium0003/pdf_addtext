@@ -1109,6 +1109,7 @@ std::shared_ptr<object> pdf_file::parse_object(std::istream &ss, int obj_num, in
     std::stringstream bs;
     std::vector<state> current_state;
     std::string keyword_buffer;
+    int literalcount = 0;
 
     while(true) {
         char c = ss.get();
@@ -1159,11 +1160,11 @@ std::shared_ptr<object> pdf_file::parse_object(std::istream &ss, int obj_num, in
         //     outstr = "(empty)";
         // }
         // if(c >= 0x20 && c < 0x7f) {
-        //     std::cout << c << " " << outstr << std::endl;
+        //     std::cout << c << " " << outstr << " " << literalcount << std::endl;
         // }
         // else {
         //     int ci = *(unsigned char *)&c;
-        //     std::cout << "b" << ci << " " << outstr << std::endl;
+        //     std::cout << "b" << ci << " " << outstr << " " << literalcount << std::endl;
         // }
 
     retry: ;
@@ -1191,16 +1192,21 @@ std::shared_ptr<object> pdf_file::parse_object(std::istream &ss, int obj_num, in
             }
         }
         else if (!current_state.empty() && current_state.back() == literalstring && c == ')') {
-            current_state.pop_back();
-            if(current_state.empty()) {
-                std::string buf = bs.str();
-                buf = buf.substr(1, buf.size()-2);
-                std::stringstream bs2(buf);
-                return parse_literal(bs2, obj_num, gen_num);
-            }                        
+            if(--literalcount <= 0) {
+                current_state.pop_back();
+                if(current_state.empty()) {
+                    std::string buf = bs.str();
+                    buf = buf.substr(1, buf.size()-2);
+                    std::stringstream bs2(buf);
+                    return parse_literal(bs2, obj_num, gen_num);
+                }
+            }
         }
         else if (!current_state.empty() && current_state.back() == literalstring) {
             // ignore spetials
+            if (c == '(') {
+                literalcount++;
+            }
         }
         else if (c == '%') {
             keyword_buffer.clear();
@@ -1314,11 +1320,12 @@ std::shared_ptr<object> pdf_file::parse_object(std::istream &ss, int obj_num, in
         }
         else if (c == '<') {
             keyword_buffer.clear();
-            current_state.push_back(hexstring);            
+            current_state.push_back(hexstring);      
         }
         else if (c == '(') {
             keyword_buffer.clear();
-            current_state.push_back(literalstring);            
+            current_state.push_back(literalstring);
+            literalcount++;
         }
         else if (c == '/') {
             keyword_buffer.clear();
@@ -2629,4 +2636,59 @@ bool pdf_file::add_image(std::shared_ptr<PageObject> page, const std::string &ke
     }
 
     return true;
+}
+
+IndexedColorSpace::IndexedColorSpace(const array_object &base)
+    : array_object(base) 
+{
+    if(size() != 4) return;
+    auto name = operator[]<name_object>(0);
+    if(!name || name->get_value() != "Indexed") return;
+
+    auto baseObject = operator[]<object>(1);
+
+    auto hival = operator[]<integer_number>(2);
+    if(!hival) return;
+    hi_value = std::min(255, hival->get_value());
+
+    auto lookup = operator[]<stream_object>(3);
+    if(lookup) {
+        lookup_table = lookup->get_stream();
+    }
+    else {
+        auto lookup2 = operator[]<string_object>(3);
+        if(!lookup2) return;
+        auto str = lookup2->get_value();
+        std::copy(str.begin(), str.end(), std::back_inserter(lookup_table));
+    }
+    m = lookup_table.size() / (1 + hi_value);
+    if(m < 3 || m > 4) return;
+
+    isValid = true;
+}
+
+void IndexedColorSpace::lookup(uint8_t i, uint8_t &r, uint8_t &g, uint8_t &b) {
+    if(m == 3) {
+        if(i <= hi_value) {
+            r = lookup_table[i * 3 + 0];
+            g = lookup_table[i * 3 + 1];
+            b = lookup_table[i * 3 + 2];
+        }
+        else {
+            r = g = b = 0;
+        }
+    }
+    else if(m == 4) {
+        auto c = lookup_table[i * 4 + 0];
+        auto m = lookup_table[i * 4 + 1];
+        auto y = lookup_table[i * 4 + 2];
+        auto k = lookup_table[i * 4 + 3];
+
+        r = clamped_cmyk_rgb_convert(k, c);
+        g = clamped_cmyk_rgb_convert(k, m);
+        b = clamped_cmyk_rgb_convert(k, y);
+    }
+    else {
+        r = g = b = 0;
+    }
 }

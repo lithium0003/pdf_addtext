@@ -612,40 +612,14 @@ class JpegImageObject: public stream_object {
 class IndexedColorSpace: public array_object {
     private:
         int hi_value = 0;
+        int m = 0;
         std::vector<uint8_t> lookup_table;
 
     public:
         bool isValid = false;
-
-        IndexedColorSpace(const array_object &base): array_object(base) {
-            if(size() != 4) return;
-            auto name = operator[]<name_object>(0);
-            if(!name || name->get_value() != "Indexed") return;
-
-            auto baseObject = operator[]<object>(1);
-
-            auto hival = operator[]<integer_number>(2);
-            if(!hival) return;
-            hi_value = std::min(255, hival->get_value());
-
-            auto lookup = operator[]<stream_object>(3);
-            if(!lookup) return;
-            lookup_table = lookup->get_stream();
-            if(lookup_table.size() != 3 * (1 + hi_value)) return;
-
-            isValid = true;
-        }
-
-        void lookup(uint8_t i, uint8_t &r, uint8_t &g, uint8_t &b) {
-            if(i <= hi_value) {
-                r = lookup_table[i * 3 + 0];
-                g = lookup_table[i * 3 + 1];
-                b = lookup_table[i * 3 + 2];
-            }
-            else {
-                r = g = b = 0;
-            }
-        }
+        
+        IndexedColorSpace(const array_object &base);
+        void lookup(uint8_t i, uint8_t &r, uint8_t &g, uint8_t &b);
 };
 
 class PageObject: public dictionary_object {
