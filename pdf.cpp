@@ -658,11 +658,11 @@ pdf_file::pdf_file(const std::string &filename)
             if(line != "xref") {
                 break;
             }
-            c = ifs.peek();
+            c = ifs.get();
             while(c == 0x0a || c == 0x0d) {
-                ifs.get();
-                c = ifs.peek();
+                c = ifs.get();
             }
+            ifs.unget();
 
             while(true) {
                 line = "";
@@ -672,9 +672,10 @@ pdf_file::pdf_file(const std::string &filename)
                     c = ifs.get();
                 }
                 while(c == 0x0a || c == 0x0d) {
-                    ifs.get();
-                    c = ifs.peek();
+                    c = ifs.get();
                 }
+                ifs.unget();
+
                 std::stringstream ss(line);
                 size_t start, length;
                 ss >> start >> length;
@@ -1174,7 +1175,7 @@ std::shared_ptr<object> pdf_file::parse_object(std::istream &ss, int obj_num, in
         }
         else if (c == '\\') {
             keyword_buffer.clear();
-            current_state.push_back(escape);            
+            current_state.push_back(escape);
         }
         else if (!current_state.empty() && current_state.back() == comment) {
             if(c == '\r') {
@@ -1250,7 +1251,7 @@ std::shared_ptr<object> pdf_file::parse_object(std::istream &ss, int obj_num, in
             current_state.pop_back();
             if(current_state.empty()) {
                 return parse_hexstring(bs, obj_num, gen_num);
-            }            
+            }
         }
         else if (!current_state.empty() && current_state.back() == dictionary && c == '>') {
             c = ss.get();
@@ -1320,7 +1321,7 @@ std::shared_ptr<object> pdf_file::parse_object(std::istream &ss, int obj_num, in
         }
         else if (c == '<') {
             keyword_buffer.clear();
-            current_state.push_back(hexstring);      
+            current_state.push_back(hexstring);
         }
         else if (c == '(') {
             keyword_buffer.clear();
@@ -1752,10 +1753,21 @@ int pdf_file::extract_images(const std::string &target_path)
             if(subtype && subtype->get_value() == "Image") {
                 std::cout << page_no << ":" << key << std::endl;
 
-                auto filter = item->get_dict().operator[]<object>("Filter");
+                bool invert = false;
+                auto decodeArray = item->get_dict().operator[]<array_object>("Decode");
+                if(decodeArray && decodeArray->size() >= 2) {
+                    auto intvalue = decodeArray->operator[]<integer_number>(0);
+                    if(intvalue && intvalue->get_value() == 1) {
+                        invert = true;
+                    }
+                    auto floatvalue = decodeArray->operator[]<real_number>(0);
+                    if(floatvalue && floatvalue->get_value() == 1) {
+                        invert = true;
+                    }
+                }
+                auto filter = item->get_dict().operator[]<name_object>("Filter");
                 if(filter) {
-                    auto afilter = std::dynamic_pointer_cast<name_object>(filter);
-                    if(afilter && afilter->get_value() == "DCTDecode") {
+                    if(filter->get_value() == "DCTDecode") {
                         auto ColorSpace = item->get_dict().operator[]<name_object>("ColorSpace");
                         if(ColorSpace && ColorSpace->get_value() == "DeviceCMYK") {
                             output_cmyk_jpeg_to_png(target_path, page_no, key, item->get_stream(), rotate);
@@ -1765,16 +1777,21 @@ int pdf_file::extract_images(const std::string &target_path)
                         }
                         count++;
                     }
-                    if(afilter && afilter->get_value() == "JBIG2Decode") {
+                    if(filter->get_value() == "JBIG2Decode") {
                         int width = item->get_dict().operator[]<integer_number>("Width")->get_value();
                         int height = item->get_dict().operator[]<integer_number>("Height")->get_value();
 
                         auto values = JBIG2Decode(item->get_stream());
-                        if(std::all_of(values.begin(), values.end(), [&](auto i) { return i == values[0]; })) continue;;
+                        if(std::all_of(values.begin(), values.end(), [&](auto i) { return i == values[0]; })) continue;
+                        if(invert) {
+                            for(auto &v: values) {
+                                v = v ^ 0xff;
+                            }
+                        }
                         output_png(1, target_path, page_no, key, values, width, height, rotate);
                         count++;
                     }
-                    if(afilter && afilter->get_value() == "CCITTFaxDecode") {
+                    if(filter->get_value() == "CCITTFaxDecode") {
                         int width = item->get_dict().operator[]<integer_number>("Width")->get_value();
                         int height = item->get_dict().operator[]<integer_number>("Height")->get_value();
 
@@ -1818,121 +1835,147 @@ int pdf_file::extract_images(const std::string &target_path)
                         }
                         const auto &values = item->get_stream();
                         CCITTFaxDecoder decoder(values, params);
-                        decoder.output(target_path, page_no, key, width, height, rotate);
-                        count++;
-                    }
-                    auto filters = std::dynamic_pointer_cast<array_object>(filter);
-                    if(filters && filters->operator[]<name_object>(0)->get_value() == "DCTDecode") {
-                        auto ColorSpace = item->get_dict().operator[]<name_object>("ColorSpace");
-                        if(ColorSpace && ColorSpace->get_value() == "DeviceCMYK") {
-                            output_cmyk_jpeg_to_png(target_path, page_no, key, item->get_stream(), rotate);
-                        }
-                        else {
-                            output_jpeg(target_path, page_no, key, item->get_stream(), rotate);
-                        }
-                        count++;
-                    }
-                    if(filters && filters->operator[]<name_object>(0)->get_value() == "JBIG2Decode") {
-                        int width = item->get_dict().operator[]<integer_number>("Width")->get_value();
-                        int height = item->get_dict().operator[]<integer_number>("Height")->get_value();
-
-                        auto values = JBIG2Decode(item->get_stream());
-                        if(std::all_of(values.begin(), values.end(), [&](auto i) { return i == values[0]; })) continue;;
-                        output_png(1, target_path, page_no, key, values, width, height, rotate);
-                        count++;
-                    }
-                    if(filters && filters->operator[]<name_object>(0)->get_value() == "CCITTFaxDecode") {
-                        int width = item->get_dict().operator[]<integer_number>("Width")->get_value();
-                        int height = item->get_dict().operator[]<integer_number>("Height")->get_value();
-
-                        CCITTFaxDecode_Parms params;
-                        auto decodeParam = item->get_dict().operator[]<array_object>("DecodeParms");
-                        if(decodeParam) {
-                            auto k = decodeParam->operator[]<dictionary_object>(0)->operator[]<integer_number>("K");
-                            if(k) {
-                                params.K = k->get_value();
-                            }
-
-                            auto b = decodeParam->operator[]<dictionary_object>(0)->operator[]<boolean_value>("EndOfLine");
-                            if(b) {
-                                params.EndOfLine = b->get_value();
-                            }
-
-                            b = decodeParam->operator[]<dictionary_object>(0)->operator[]<boolean_value>("EncodedByteAlign");
-                            if(b) {
-                                params.EncodedByteAlign = b->get_value();
-                            }
-
-                            k = decodeParam->operator[]<dictionary_object>(0)->operator[]<integer_number>("Columns");
-                            if(k) {
-                                params.Columns = k->get_value();
-                            }
-
-                            k = decodeParam->operator[]<dictionary_object>(0)->operator[]<integer_number>("Rows");
-                            if(k) {
-                                params.Rows = k->get_value();
-                            }
-
-                            b = decodeParam->operator[]<dictionary_object>(0)->operator[]<boolean_value>("EndOfBlock");
-                            if(b) {
-                                params.EndOfBlock = b->get_value();
-                            }
-
-                            b = decodeParam->operator[]<dictionary_object>(0)->operator[]<boolean_value>("BlackIs1");
-                            if(b) {
-                                params.BlackIs1 = b->get_value();
+                        auto graybuf = decoder.output();
+                        if(invert) {
+                            for(auto &v: graybuf) {
+                                v = v ^ 0xff;
                             }
                         }
-                        const auto &values = item->get_stream();
-                        CCITTFaxDecoder decoder(values, params);
-                        decoder.output(target_path, page_no, key, width, height, rotate);
+                        output_png(1, target_path, page_no, key, graybuf, width, height, rotate);
                         count++;
                     }
                 }
                 else {
-                    // raw image
-                    int width = item->get_dict().operator[]<integer_number>("Width")->get_value();
-                    int height = item->get_dict().operator[]<integer_number>("Height")->get_value();
-                    int bits = item->get_dict().operator[]<integer_number>("BitsPerComponent")->get_value();
-                    auto csObj = item->get_dict().operator[]<array_object>("ColorSpace");
-                    std::shared_ptr<IndexedColorSpace> indexed;
-                    if(csObj) {
-                        indexed = std::shared_ptr<IndexedColorSpace>(new IndexedColorSpace(*csObj));
-                    }
-                    const auto &values = item->get_stream();
-                    if(std::all_of(values.begin(), values.end(), [&](auto i) { return i == values[0]; })) continue;
-                    if(indexed && indexed->isValid) {
-                        std::vector<uint8_t> rgbbuf;
-                        for(const auto &ind: values) {
-                            uint8_t r,g,b;
-                            indexed->lookup(ind, r, g, b);
-                            rgbbuf.push_back(r);
-                            rgbbuf.push_back(g);
-                            rgbbuf.push_back(b);
+                    auto filters = item->get_dict().operator[]<array_object>("Filter");
+                    if(filters && filters->size() > 0) {
+                        if(filters->operator[]<name_object>(0)->get_value() == "DCTDecode") {
+                            auto ColorSpace = item->get_dict().operator[]<name_object>("ColorSpace");
+                            if(ColorSpace && ColorSpace->get_value() == "DeviceCMYK") {
+                                output_cmyk_jpeg_to_png(target_path, page_no, key, item->get_stream(), rotate);
+                            }
+                            else {
+                                output_jpeg(target_path, page_no, key, item->get_stream(), rotate);
+                            }
+                            count++;
                         }
-                        output_png(3, target_path, page_no, key, rgbbuf, width, height, rotate);
-                    }
-                    else if(bits == 8) {
-                        int n = values.size() / (width * height);
-                        output_png(n, target_path, page_no, key, values, width, height, rotate);
-                    }
-                    else if(bits == 1) {
-                        std::vector<uint8_t> graybuf;
-                        bit_stream bstream(values);
-                        int width_b = (width + 7) / 8;
-                        width_b *= 8;
-                        auto it = bstream.begin();
-                        for(int y = 0; y < height; y++) {
-                            for(int x = 0; it != bstream.end() && x < width_b; x++) {
-                                uint8_t v = *it++ == 0 ? 0 : 0xff;
-                                if(x < width) {
-                                    graybuf.push_back(v);
+                        if(filters->operator[]<name_object>(0)->get_value() == "JBIG2Decode") {
+                            int width = item->get_dict().operator[]<integer_number>("Width")->get_value();
+                            int height = item->get_dict().operator[]<integer_number>("Height")->get_value();
+
+                            auto values = JBIG2Decode(item->get_stream());
+                            if(std::all_of(values.begin(), values.end(), [&](auto i) { return i == values[0]; })) continue;;
+                            if(invert) {
+                                for(auto &v: values) {
+                                    v = v ^ 0xff;
                                 }
                             }
+                            output_png(1, target_path, page_no, key, values, width, height, rotate);
+                            count++;
                         }
-                        output_png(1, target_path, page_no, key, graybuf, width, height, rotate);
+                        if(filters->operator[]<name_object>(0)->get_value() == "CCITTFaxDecode") {
+                            int width = item->get_dict().operator[]<integer_number>("Width")->get_value();
+                            int height = item->get_dict().operator[]<integer_number>("Height")->get_value();
+
+                            CCITTFaxDecode_Parms params;
+                            auto decodeParam = item->get_dict().operator[]<array_object>("DecodeParms");
+                            if(decodeParam) {
+                                auto k = decodeParam->operator[]<dictionary_object>(0)->operator[]<integer_number>("K");
+                                if(k) {
+                                    params.K = k->get_value();
+                                }
+
+                                auto b = decodeParam->operator[]<dictionary_object>(0)->operator[]<boolean_value>("EndOfLine");
+                                if(b) {
+                                    params.EndOfLine = b->get_value();
+                                }
+
+                                b = decodeParam->operator[]<dictionary_object>(0)->operator[]<boolean_value>("EncodedByteAlign");
+                                if(b) {
+                                    params.EncodedByteAlign = b->get_value();
+                                }
+
+                                k = decodeParam->operator[]<dictionary_object>(0)->operator[]<integer_number>("Columns");
+                                if(k) {
+                                    params.Columns = k->get_value();
+                                }
+
+                                k = decodeParam->operator[]<dictionary_object>(0)->operator[]<integer_number>("Rows");
+                                if(k) {
+                                    params.Rows = k->get_value();
+                                }
+
+                                b = decodeParam->operator[]<dictionary_object>(0)->operator[]<boolean_value>("EndOfBlock");
+                                if(b) {
+                                    params.EndOfBlock = b->get_value();
+                                }
+
+                                b = decodeParam->operator[]<dictionary_object>(0)->operator[]<boolean_value>("BlackIs1");
+                                if(b) {
+                                    params.BlackIs1 = b->get_value();
+                                }
+                            }
+                            const auto &values = item->get_stream();
+                            CCITTFaxDecoder decoder(values, params);
+                            auto graybuf = decoder.output();
+                            if(invert) {
+                                for(auto &v: graybuf) {
+                                    v = v ^ 0xff;
+                                }
+                            }
+                            output_png(1, target_path, page_no, key, graybuf, width, height, rotate);
+                            count++;
+                        }
                     }
-                    count++;
+                    else {
+                        // raw image
+                        int width = item->get_dict().operator[]<integer_number>("Width")->get_value();
+                        int height = item->get_dict().operator[]<integer_number>("Height")->get_value();
+                        int bits = item->get_dict().operator[]<integer_number>("BitsPerComponent")->get_value();
+                        auto csObj = item->get_dict().operator[]<array_object>("ColorSpace");
+                        std::shared_ptr<IndexedColorSpace> indexed;
+                        if(csObj) {
+                            indexed = std::shared_ptr<IndexedColorSpace>(new IndexedColorSpace(*csObj));
+                        }
+                        const auto &values = item->get_stream();
+                        if(std::all_of(values.begin(), values.end(), [&](auto i) { return i == values[0]; })) continue;
+                        if(indexed && indexed->isValid) {
+                            std::vector<uint8_t> rgbbuf;
+                            for(const auto &ind: values) {
+                                uint8_t r,g,b;
+                                indexed->lookup(ind, r, g, b);
+                                rgbbuf.push_back(r);
+                                rgbbuf.push_back(g);
+                                rgbbuf.push_back(b);
+                            }
+                            output_png(3, target_path, page_no, key, rgbbuf, width, height, rotate);
+                        }
+                        else if(bits == 8) {
+                            int n = values.size() / (width * height);
+                            output_png(n, target_path, page_no, key, values, width, height, rotate);
+                        }
+                        else if(bits == 1) {
+                            std::vector<uint8_t> graybuf;
+                            bit_stream bstream(values);
+                            int width_b = (width + 7) / 8;
+                            width_b *= 8;
+                            auto it = bstream.begin();
+                            for(int y = 0; y < height; y++) {
+                                for(int x = 0; it != bstream.end() && x < width_b; x++) {
+                                    uint8_t v = *it++ == 0 ? 0 : 0xff;
+                                    if(x < width) {
+                                        graybuf.push_back(v);
+                                    }
+                                }
+                            }
+                            if(invert) {
+                                for(auto &v: graybuf) {
+                                    v = v ^ 0xff;
+                                }
+                            }
+                            output_png(1, target_path, page_no, key, graybuf, width, height, rotate);
+                        }
+                        count++;
+                    }
                 }
             }
         }
@@ -2639,7 +2682,7 @@ bool pdf_file::add_image(std::shared_ptr<PageObject> page, const std::string &ke
 }
 
 IndexedColorSpace::IndexedColorSpace(const array_object &base)
-    : array_object(base) 
+    : array_object(base)
 {
     if(size() != 4) return;
     auto name = operator[]<name_object>(0);
@@ -2661,7 +2704,7 @@ IndexedColorSpace::IndexedColorSpace(const array_object &base)
         auto str = lookup2->get_value();
         std::copy(str.begin(), str.end(), std::back_inserter(lookup_table));
     }
-    m = lookup_table.size() / (1 + hi_value);
+    m = (int)lookup_table.size() / (1 + hi_value);
     if(m < 3 || m > 4) return;
 
     isValid = true;

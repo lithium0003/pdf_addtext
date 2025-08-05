@@ -52,6 +52,14 @@ class bit_stream {
 
                 friend bool operator== (const iterator& a, const iterator& b) { return a._it == b._it && a._bit == b._bit; };
                 friend bool operator!= (const iterator& a, const iterator& b) { return a._it != b._it || a._bit != b._bit; };
+
+                iterator& byteAlign() {
+                    if(_bit == 7) return *this;
+                    while(_bit > 0) {
+                        operator++();
+                    }
+                    return operator++();
+                }
         };
 
         iterator begin() { return iterator(_data.begin(), 7); }
@@ -100,5 +108,5 @@ class CCITTFaxDecoder {
     public:
         CCITTFaxDecoder(const std::vector<uint8_t> &data, const CCITTFaxDecode_Parms &option);
 
-        void output(const std::string &target_path, int page_no, const std::string &key, int width, int height, int rotate = 0);
+        std::vector<uint8_t> output();
 };

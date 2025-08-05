@@ -4,8 +4,6 @@
 #include <filesystem>
 #include <sstream>
 
-#include <png.h>
-
 #include "fax.hpp"
 
 std::map<uint32_t, int> whiteTable = {
@@ -492,6 +490,11 @@ CCITTFaxDecoder::CCITTFaxDecoder(const std::vector<uint8_t> &data, const CCITTFa
         }
 
         bool gotEOL = false;
+
+        if(option.EncodedByteAlign) {
+            it.byteAlign();
+        }
+
         if(!option.EndOfBlock && row == option.Rows - 1) {
             rowsDone = true;
         }
@@ -589,10 +592,10 @@ CCITTFaxDecoder::CCITTFaxDecoder(const std::vector<uint8_t> &data, const CCITTFa
         if(eof) break;
 
         int x = 0;
-        for (int i = (codingLine[0] > 0 ? 0: 1); x < columns; ++i) {
-            int c = i & 1 ? 0 : 0xff;
+        for (int i = ((codingLine[0] > 0) ? 0: 1); x < columns; ++i) {
+            int c = (i & 1) ? 0 : 0xff;
             if(option.BlackIs1) {
-                c = c == 0 ? 0xff : 0;
+                c = (i & 1) ? 0xff : 0;
             }
             while(x <= codingLine[i] && x < columns) {
                 outbufer.push_back(c);
@@ -603,72 +606,7 @@ CCITTFaxDecoder::CCITTFaxDecoder(const std::vector<uint8_t> &data, const CCITTFa
     }
 }
 
-void CCITTFaxDecoder::output(const std::string &target_path, int page_no, const std::string &key, int width, int height, int rotate)
+std::vector<uint8_t> CCITTFaxDecoder::output()
 {
-    if(rotate == 90 || rotate == 270) {
-        std::swap(width, height);
-    }
-
-    std::filesystem::path path(target_path);
-    std::stringstream ss;
-    ss.fill('0');
-    ss << "page" << std::setw(4) << page_no;
-    path /= ss.str() + "_" + key + ".png";
-
-    FILE *fp = fopen(path.c_str(), "wb");
-    auto png = png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
-    auto info = png_create_info_struct(png);
-    png_init_io(png, fp);
-
-    png_set_IHDR(png, info, width, height, 8,
-      PNG_COLOR_TYPE_GRAY, PNG_INTERLACE_NONE, PNG_COMPRESSION_TYPE_DEFAULT,
-      PNG_FILTER_TYPE_DEFAULT);
-    png_bytepp rows = (png_bytepp)png_malloc(png, sizeof(png_bytep) * height);
-    png_set_rows(png, info, rows);
-    memset(rows, 0, sizeof(png_bytep) * height);
-    for (int y = 0; y < height; y++) {
-        rows[y] = (png_bytep)png_malloc(png, sizeof(png_byte) * width);
-    }
-    if(rotate == 0) {
-        const uint8_t *datap = outbufer.data();
-        for (int y = 0; y < height; y++) {
-            png_bytep row = rows[y];
-            for (int x = 0; x < width; x++) {
-                *row++ = *datap++;
-            }
-        }
-    }
-    else if(rotate == 90) {
-        for (int y = 0; y < height; y++) {
-            png_bytep row = rows[y];
-            for (int x = 0; x < width; x++) {
-                *row++ = outbufer[(width - 1 - x)*height + y];
-            }
-        }
-    }
-    else if(rotate == 180) {
-        for (int y = 0; y < height; y++) {
-            png_bytep row = rows[y];
-            for (int x = 0; x < width; x++) {
-                *row++ = outbufer[(height - 1 - y)*width + (width - 1 - x)];
-            }
-        }
-    }
-    else if(rotate == 270) {
-        for (int y = 0; y < height; y++) {
-            png_bytep row = rows[y];
-            for (int x = 0; x < width; x++) {
-                *row++ = outbufer[x * height + (height - 1 - y)];
-            }
-        }
-    }
-    png_write_png(png, info, PNG_TRANSFORM_IDENTITY, NULL);
-    if (rows != NULL) {
-        for (int y = 0; y < height; y++) {
-            png_free(png, rows[y]);
-        }
-        png_free(png, rows);
-    }
-    png_destroy_write_struct(&png, &info);
-    fclose(fp); 
+    return outbufer;
 }
