@@ -80,6 +80,9 @@ std::vector<uint8_t> ASCII85Decode(const std::vector<uint8_t> &stream)
             result.push_back(0);
             result.push_back(0);
             result.push_back(0);
+            value = 0;
+            i = 0;
+            continue;
         }
         else if(v == 0x7e) {
             if(i == 0) {

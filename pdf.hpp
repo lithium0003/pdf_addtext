@@ -1,6 +1,7 @@
 #pragma once
 #include <fstream>
 #include <iostream>
+#include <iomanip>
 #include <sstream>
 #include <string>
 #include <map>
@@ -9,6 +10,19 @@
 #include <algorithm>
 
 #include "json.hpp"
+
+enum Orientation: int {
+    up = 0,            // The original pixel data matches the image’s intended display orientation.
+    down = 1,          // The image has been rotated 180° from the orientation of its original pixel data.
+    left = 2,          // The image has been rotated 90° counterclockwise from the orientation of its original pixel data.
+    right = 3,         // The image has been rotated 90° clockwise from the orientation of its original pixel data.
+    upMirrored = 4,    // The image has been horizontally flipped from the orientation of its original pixel data.
+    downMirrored = 5,  // The image has been vertically flipped from the orientation of its original pixel data.
+    leftMirrored = 6,  // The image has been rotated 90° clockwise and flipped horizontally from the orientation of its original pixel data.
+    rightMirrored = 7, // The image has been rotated 90° counterclockwise and flipped horizontally from the orientation of its original pixel data.
+};
+
+Orientation invert(const Orientation &org);
 
 class object {
     public:
@@ -529,7 +543,7 @@ class stream_object: public direct_object {
             : _dict(dict), _stream(stream) {
             decode_stream(_dict, _stream);
             auto length = _stream.size();
-            _dict.add("Length", std::shared_ptr<object>(new integer_number((int)length)));
+            _dict.add("Length", std::make_shared<integer_number>((int)length));
         }
 
         dictionary_object& get_dict() {
@@ -543,7 +557,7 @@ class stream_object: public direct_object {
         void set_stream(const std::vector<uint8_t>& stream) {
             _stream = stream;
             auto length = _stream.size();
-            _dict.add("Length", std::shared_ptr<object>(new integer_number((int)length)));
+            _dict.add("Length", std::make_shared<integer_number>((int)length));
         }
 
         std::string output() const override;
@@ -580,17 +594,17 @@ class null_object: public direct_object {
 class Rectangle: public array_object {
     public:
         Rectangle(): array_object(std::vector<std::shared_ptr<object>>{
-            std::shared_ptr<object>(new real_number(0)),
-            std::shared_ptr<object>(new real_number(0)),
-            std::shared_ptr<object>(new real_number(0)),
-            std::shared_ptr<object>(new real_number(0)),
+            std::make_shared<real_number>(0),
+            std::make_shared<real_number>(0),
+            std::make_shared<real_number>(0),
+            std::make_shared<real_number>(0),
         }) {}
 
         Rectangle(double x1, double y1, double x2, double y2): array_object(std::vector<std::shared_ptr<object>>{
-            std::shared_ptr<object>(new real_number(x1)),
-            std::shared_ptr<object>(new real_number(y1)),
-            std::shared_ptr<object>(new real_number(x2)),
-            std::shared_ptr<object>(new real_number(y2)),
+            std::make_shared<real_number>(x1),
+            std::make_shared<real_number>(y1),
+            std::make_shared<real_number>(x2),
+            std::make_shared<real_number>(y2),
         }) {}
 
         void set_value(double x1, double y1, double x2, double y2) {
@@ -625,9 +639,9 @@ class IndexedColorSpace: public array_object {
 class PageObject: public dictionary_object {
     public:
         PageObject() {
-            add("Type", std::shared_ptr<object>(new name_object("Page")));
-            add("Resources", std::shared_ptr<object>(new dictionary_object()));
-            add("MediaBox", std::shared_ptr<object>(new Rectangle()));
+            add("Type", std::make_shared<name_object>("Page"));
+            add("Resources", std::make_shared<dictionary_object>());
+            add("MediaBox", std::make_shared<Rectangle>());
         }
 
         PageObject(const dictionary_object &base)
@@ -651,9 +665,9 @@ class PagesObject: public dictionary_object {
         std::vector<std::shared_ptr<PageObject>> page_array;
     public:
         PagesObject() {
-            add("Type", std::shared_ptr<object>(new name_object("Pages")));
-            add("Kids", std::shared_ptr<object>(new array_object()));
-            add("Count", std::shared_ptr<object>(new integer_number(0)));
+            add("Type", std::make_shared<name_object>("Pages"));
+            add("Kids", std::make_shared<array_object>());
+            add("Count", std::make_shared<integer_number>(0));
         }
 
         PagesObject(const dictionary_object &base)
@@ -665,10 +679,10 @@ class PagesObject: public dictionary_object {
                 auto dict = p->follow<dictionary_object>();
                 if(dict) {
                     if(dict->operator[]<name_object>("Type")->get_value() == "Pages") {
-                        p->set(std::shared_ptr<object>(new PagesObject(*dict)));
+                        p->set(std::make_shared<PagesObject>(*dict));
                     }
                     else if(dict->operator[]<name_object>("Type")->get_value() == "Page") {
-                        p->set(std::shared_ptr<object>(new PageObject(*dict)));
+                        p->set(std::make_shared<PageObject>(*dict));
                     }
                 }
                 p = kids->operator[]<indirect_object>(++i);
@@ -706,7 +720,7 @@ class PagesObject: public dictionary_object {
 class RootObject: public dictionary_object {
     public:
         RootObject() {
-            add("Type", std::shared_ptr<object>(new name_object("Catalog")));
+            add("Type", std::make_shared<name_object>("Catalog"));
         }
 
         RootObject(const dictionary_object &base)

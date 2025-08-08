@@ -6,12 +6,22 @@
 #include "fax.hpp"
 #include "filters.hpp"
 
-#include "jpeglib.h"
+#include <jpeglib.h>
+#include <openjpeg.h>
 #include <zlib.h>
 #include <png.h>
 
-extern "C" {
-#include "transupp.h"
+Orientation invert(const Orientation &org)
+{
+    if(org == up) return up;
+    if(org == left) return right;
+    if(org == down) return down;
+    if(org == right) return left;
+    if(org == upMirrored) return upMirrored;
+    if(org == downMirrored) return downMirrored;
+    if(org == leftMirrored) return rightMirrored;
+    if(org == rightMirrored) return leftMirrored;
+    return up;
 }
 
 std::ostream& operator<<(std::ostream& os, const object* obj)
@@ -51,35 +61,29 @@ std::string stream_object::output() const {
 
         if(dict.operator[]<array_object>("Filter") == nullptr) {
             if(dict.operator[]<name_object>("Filter") == nullptr) {
-                dict.add("Filter", std::shared_ptr<object>(new name_object("FlateDecode")));
+                dict.add("Filter", std::make_shared<name_object>("FlateDecode"));
             }
             else {
                 auto filter = dict.operator[]<name_object>("Filter");
-                dict.add("Filter", std::shared_ptr<object>(new array_object({ 
-                    std::shared_ptr<object>(new name_object("FlateDecode")), 
+                dict.add("Filter", std::shared_ptr<array_object>(new array_object({
+                    std::make_shared<name_object>("FlateDecode"),
                     filter,
                 })));
                 auto decodeParam = dict.operator[]<dictionary_object>("DecodeParms");
                 if(decodeParam) {
-                    dict.add("DecodeParms", std::shared_ptr<object>(new array_object({ 
-                        std::shared_ptr<object>(new null_object), 
+                    dict.add("DecodeParms", std::shared_ptr<array_object>(new array_object({
+                        std::make_shared<null_object>(),
                         decodeParam,
                     })));
                 }
             }
         }
         else {
-            dict.operator[]<array_object>("Filter")->insert(0, std::shared_ptr<object>(new name_object("FlateDecode")));
+            dict.operator[]<array_object>("Filter")->insert(0, std::make_shared<name_object>("FlateDecode"));
         }
 
-        if(dict.operator[]<integer_number>("Length") == nullptr) {
-            auto length = outStream.size();
-            dict.add("Length", std::shared_ptr<object>(new integer_number((int)length)));
-        }
-        else {
-            auto length = outStream.size();
-            dict.operator[]<integer_number>("Length")->set_value((int)length);
-        }
+        auto length = outStream.size();
+        dict.add("Length", std::make_shared<integer_number>((int)length));
 
         std::stringstream ss;
         ss << dict.output() << "\r\n";
@@ -90,14 +94,8 @@ std::string stream_object::output() const {
     }
     else {
         auto dict = _dict;
-        if(dict.operator[]<integer_number>("Length") == nullptr) {
-            auto length = _stream.size();
-            dict.add("Length", std::shared_ptr<object>(new integer_number((int)length)));
-        }
-        else {
-            auto length = _stream.size();
-            dict.operator[]<integer_number>("Length")->set_value((int)length);
-        }
+        auto length = _stream.size();
+        dict.add("Length", std::make_shared<integer_number>((int)length));
 
         std::stringstream ss;
         ss << _dict.output() << "\r\n";
@@ -133,26 +131,26 @@ JpegImageObject::JpegImageObject(const std::string &filename)
 
     fclose(fp);
 
-    _dict.add("Type", std::shared_ptr<object>(new name_object("XObject")));
-    _dict.add("Subtype", std::shared_ptr<object>(new name_object("Image")));
-    _dict.add("Width", std::shared_ptr<object>(new integer_number(width)));
-    _dict.add("Height", std::shared_ptr<object>(new integer_number(height)));
+    _dict.add("Type", std::make_shared<name_object>("XObject"));
+    _dict.add("Subtype", std::make_shared<name_object>("Image"));
+    _dict.add("Width", std::make_shared<integer_number>(width));
+    _dict.add("Height", std::make_shared<integer_number>(height));
     if(rgb) {
-        _dict.add("ColorSpace", std::shared_ptr<object>(new name_object("DeviceRGB")));
+        _dict.add("ColorSpace", std::make_shared<name_object>("DeviceRGB"));
     }
     else {
-        _dict.add("ColorSpace", std::shared_ptr<object>(new name_object("DeviceGray")));
+        _dict.add("ColorSpace", std::make_shared<name_object>("DeviceGray"));
     }
-    _dict.add("BitsPerComponent", std::shared_ptr<object>(new integer_number(8)));
-    _dict.add("Filter", std::shared_ptr<object>(new name_object("DCTDecode")));
+    _dict.add("BitsPerComponent", std::make_shared<integer_number>(8));
+    _dict.add("Filter", std::make_shared<name_object>("DCTDecode"));
 
-    _dict.add("Length", std::shared_ptr<object>(new integer_number((int)filesize)));
+    _dict.add("Length", std::make_shared<integer_number>((int)filesize));
 }
 
 pdf_file::pdf_file()
 {
-    root = add_object(std::shared_ptr<object>(new RootObject()));
-    pages = add_object(std::shared_ptr<object>(new PagesObject()));
+    root = add_object(std::make_shared<RootObject>());
+    pages = add_object(std::make_shared<PagesObject>());
     root->follow<RootObject>()->add_pages(pages);
     trailer.add("Root", root);
 
@@ -181,36 +179,36 @@ void pdf_file::prepare_font()
         }
     }
 
-    auto dummyFontObject = add_object(std::shared_ptr<object>(new stream_object(dummyFont)));
-    dummyFontObject->follow<stream_object>()->get_dict().add("Subtype", std::shared_ptr<object>(new name_object("CIDFontType0C")));
+    auto dummyFontObject = add_object(std::make_shared<stream_object>(dummyFont));
+    dummyFontObject->follow<stream_object>()->get_dict().add("Subtype", std::make_shared<name_object>("CIDFontType0C"));
 
-    auto fontDescriptorObject = add_object(std::shared_ptr<object>(new dictionary_object()));
-    fontDescriptorObject->follow<dictionary_object>()->add("Type", std::shared_ptr<object>(new name_object("FontDescriptor")));
-    fontDescriptorObject->follow<dictionary_object>()->add("FontName", std::shared_ptr<object>(new name_object("Dummy")));
-    fontDescriptorObject->follow<dictionary_object>()->add("Flags", std::shared_ptr<object>(new integer_number(32)));
-    fontDescriptorObject->follow<dictionary_object>()->add("FontBBox", std::shared_ptr<object>(new Rectangle(0,0,1000,1000)));
-    fontDescriptorObject->follow<dictionary_object>()->add("ItalicAngle", std::shared_ptr<object>(new integer_number(0)));
-    fontDescriptorObject->follow<dictionary_object>()->add("Ascent", std::shared_ptr<object>(new integer_number(72)));
-    fontDescriptorObject->follow<dictionary_object>()->add("Descent", std::shared_ptr<object>(new integer_number(0)));
-    fontDescriptorObject->follow<dictionary_object>()->add("CapHeight", std::shared_ptr<object>(new integer_number(72)));
-    fontDescriptorObject->follow<dictionary_object>()->add("StemV", std::shared_ptr<object>(new integer_number(0)));
+    auto fontDescriptorObject = add_object(std::make_shared<dictionary_object>());
+    fontDescriptorObject->follow<dictionary_object>()->add("Type", std::make_shared<name_object>("FontDescriptor"));
+    fontDescriptorObject->follow<dictionary_object>()->add("FontName", std::make_shared<name_object>("Dummy"));
+    fontDescriptorObject->follow<dictionary_object>()->add("Flags", std::make_shared<integer_number>(32));
+    fontDescriptorObject->follow<dictionary_object>()->add("FontBBox", std::make_shared<Rectangle>(0,0,1000,1000));
+    fontDescriptorObject->follow<dictionary_object>()->add("ItalicAngle", std::make_shared<integer_number>(0));
+    fontDescriptorObject->follow<dictionary_object>()->add("Ascent", std::make_shared<integer_number>(72));
+    fontDescriptorObject->follow<dictionary_object>()->add("Descent", std::make_shared<integer_number>(0));
+    fontDescriptorObject->follow<dictionary_object>()->add("CapHeight", std::make_shared<integer_number>(72));
+    fontDescriptorObject->follow<dictionary_object>()->add("StemV", std::make_shared<integer_number>(0));
     fontDescriptorObject->follow<dictionary_object>()->add("FontFile3", dummyFontObject);
 
-    cidFontType0Object = add_object(std::shared_ptr<object>(new dictionary_object()));
-    cidFontType0Object->follow<dictionary_object>()->add("Type", std::shared_ptr<object>(new name_object("Font")));
-    cidFontType0Object->follow<dictionary_object>()->add("Subtype", std::shared_ptr<object>(new name_object("CIDFontType0")));
-    cidFontType0Object->follow<dictionary_object>()->add("BaseFont", std::shared_ptr<object>(new name_object("Dummy")));
+    cidFontType0Object = add_object(std::make_shared<dictionary_object>());
+    cidFontType0Object->follow<dictionary_object>()->add("Type", std::make_shared<name_object>("Font"));
+    cidFontType0Object->follow<dictionary_object>()->add("Subtype", std::make_shared<name_object>("CIDFontType0"));
+    cidFontType0Object->follow<dictionary_object>()->add("BaseFont", std::make_shared<name_object>("Dummy"));
     cidFontType0Object->follow<dictionary_object>()->add("CIDSystemInfo", std::shared_ptr<object>(new dictionary_object({
-        {name_object("Registry"), std::shared_ptr<object>(new literal_string("Adobe"))},
-        {name_object("Ordering"), std::shared_ptr<object>(new literal_string("Identity"))},
-        {name_object("Supplement"), std::shared_ptr<object>(new integer_number(0))},
+        {name_object("Registry"), std::make_shared<literal_string>("Adobe")},
+        {name_object("Ordering"), std::make_shared<literal_string>("Identity")},
+        {name_object("Supplement"), std::make_shared<integer_number>(0)},
     })));
     cidFontType0Object->follow<dictionary_object>()->add("FontDescriptor", fontDescriptorObject);
 }
 
 std::shared_ptr<PageObject> pdf_file::new_page() 
 {
-    auto newpage = std::shared_ptr<PageObject>(new PageObject());
+    auto newpage = std::make_shared<PageObject>();
     auto page = add_object(newpage);
     pages->follow<PagesObject>()->add_page(page);
     newpage->set_parent(pages);
@@ -224,7 +222,7 @@ std::shared_ptr<indirect_object> pdf_file::add_object(std::shared_ptr<object> ob
     }
     body.emplace_back(new indirect_object(newidx, 0, obj));
     bodyidx.push_back(newidx);
-    trailer.add("Size", std::shared_ptr<object>(new integer_number(newidx+1)));
+    trailer.add("Size", std::make_shared<integer_number>(newidx+1));
     return body.back();
 }
 
@@ -434,9 +432,9 @@ std::shared_ptr<PageObject> pdf_file::add_image(const std::string &jpgname, cons
 
     auto newpage = new_page();
 
-    auto jpeg = std::shared_ptr<JpegImageObject>(new JpegImageObject(jpgname));
+    auto jpeg = std::make_shared<JpegImageObject>(jpgname);
     auto imageXObject = add_object(jpeg);
-    auto dictXObject = std::shared_ptr<dictionary_object>(new dictionary_object());
+    auto dictXObject = std::make_shared<dictionary_object>();
     dictXObject->add("Im1", imageXObject);
 
     std::stringstream ss;
@@ -484,6 +482,7 @@ std::shared_ptr<PageObject> pdf_file::add_image(const std::string &jpgname, cons
             p2x = b.cx;
             p2y = b.cy;
         }
+        if(p1x < 0) continue;
         if(b1.vertical) {
             s = b2.cy + b2.h / 2 - (b1.cy - b1.h / 2);
             if(p1x < 0) {
@@ -529,7 +528,7 @@ std::shared_ptr<PageObject> pdf_file::add_image(const std::string &jpgname, cons
         }
         else {
             float tx = b1.cx - b1.w / 2;
-            float ty = jpeg->height - (p1y + h / 4);
+            float ty = jpeg->height - (p1y + h / 2);
             ss << w * cosf(th);
             ss << " ";
             ss << w * sinf(th);
@@ -560,17 +559,17 @@ std::shared_ptr<PageObject> pdf_file::add_image(const std::string &jpgname, cons
     ss << "ET" << std::endl;
     std::string str = ss.str();
     std::vector<uint8_t> stream(str.begin(), str.end());
-    auto content = add_object(std::shared_ptr<object>(new stream_object(stream)));
+    auto content = add_object(std::make_shared<stream_object>(stream));
     newpage->set_contents(content);
     newpage->set_mediabox(0,0,jpeg->width,jpeg->height);
     newpage->operator[]<dictionary_object>("Resources")->add("XObject", dictXObject);
 
-    auto type0FontObject = add_object(std::shared_ptr<object>(new dictionary_object()));
-    type0FontObject->follow<dictionary_object>()->add("Type", std::shared_ptr<object>(new name_object("Font")));
-    type0FontObject->follow<dictionary_object>()->add("Subtype", std::shared_ptr<object>(new name_object("Type0")));
-    type0FontObject->follow<dictionary_object>()->add("BaseFont", std::shared_ptr<object>(new name_object("Dummy")));
-    type0FontObject->follow<dictionary_object>()->add("Encoding", std::shared_ptr<object>(new name_object("Identity-H")));
-    type0FontObject->follow<dictionary_object>()->add("DescendantFonts", std::shared_ptr<object>(new array_object({cidFontType0Object})));
+    auto type0FontObject = add_object(std::make_shared<dictionary_object>());
+    type0FontObject->follow<dictionary_object>()->add("Type", std::make_shared<name_object>("Font"));
+    type0FontObject->follow<dictionary_object>()->add("Subtype", std::make_shared<name_object>("Type0"));
+    type0FontObject->follow<dictionary_object>()->add("BaseFont", std::make_shared<name_object>("Dummy"));
+    type0FontObject->follow<dictionary_object>()->add("Encoding", std::make_shared<name_object>("Identity-H"));
+    type0FontObject->follow<dictionary_object>()->add("DescendantFonts", std::shared_ptr<array_object>(new array_object({cidFontType0Object})));
     {
         std::stringstream ss;
         ss << "/CIDInit /ProcSet findresource begin" << std::endl;
@@ -615,10 +614,10 @@ std::shared_ptr<PageObject> pdf_file::add_image(const std::string &jpgname, cons
 
         std::string str = ss.str();
         std::vector<uint8_t> stream(str.begin(), str.end());
-        auto toUnicodeObject = add_object(std::shared_ptr<object>(new stream_object(stream)));        
+        auto toUnicodeObject = add_object(std::make_shared<stream_object>(stream));
         type0FontObject->follow<dictionary_object>()->add("ToUnicode", toUnicodeObject);
     }
-    auto fontObject = std::shared_ptr<dictionary_object>(new dictionary_object());
+    auto fontObject = std::make_shared<dictionary_object>();
     fontObject->add("F1", type0FontObject);
     newpage->operator[]<dictionary_object>("Resources")->add("Font", fontObject);
 
@@ -631,6 +630,7 @@ pdf_file::pdf_file(const std::string &filename)
     std::string line(8, 0);
     ifs.read(line.data(), 8);
     if(line.substr(0, 4) != "%PDF") return;
+    header = line;
 
     std::streamoff offset = -1;
     ifs.seekg(offset, std::ios_base::end);
@@ -803,7 +803,7 @@ pdf_file::pdf_file(const std::string &filename)
         if(obj) {
             auto dict = std::dynamic_pointer_cast<indirect_object>(obj)->follow<dictionary_object>();
             if(dict) {
-                encrypt = std::shared_ptr<object>(new crypt_object(*dict, id1));
+                encrypt = std::make_shared<crypt_object>(*dict, id1);
                 trailer.remove("Encrypt");
             }
         }
@@ -1051,12 +1051,12 @@ std::shared_ptr<object> pdf_file::parse_numeric(std::istream &is, std::istream &
     if(numstr.find('.') == std::string::npos) {
         int value = 0;
         std::stringstream(numstr) >> value;
-        return std::shared_ptr<object>(new integer_number(value));
+        return std::make_shared<integer_number>(value);
     }
     else {
         double value = 0;
         std::stringstream(numstr) >> value;
-        return std::shared_ptr<object>(new real_number(value));
+        return std::make_shared<real_number>(value);
     }
 }
 
@@ -1077,7 +1077,7 @@ std::shared_ptr<array_object> pdf_file::parse_array(std::istream &ss)
 
 std::shared_ptr<dictionary_object> pdf_file::parse_dictionary(std::istream &ss)
 {
-    auto dictobj = std::shared_ptr<dictionary_object>(new dictionary_object());
+    auto dictobj = std::make_shared<dictionary_object>();
     while(ss) {
         std::shared_ptr<object> key = parse_object(ss);
         std::shared_ptr<object> value = parse_object(ss);
@@ -1341,15 +1341,15 @@ std::shared_ptr<object> pdf_file::parse_object(std::istream &ss, int obj_num, in
             }
 
             if(keyword_buffer == "null") {
-                return std::shared_ptr<object>(new null_object());
+                return std::make_shared<null_object>();
             }
             if(keyword_buffer == "true") {
-                return std::shared_ptr<object>(new boolean_value(true));
+                return std::make_shared<boolean_value>(true);
             }
             if(keyword_buffer == "false") {
-                return std::shared_ptr<object>(new boolean_value(false));
+                return std::make_shared<boolean_value>(false);
             }
-            
+
             if(keyword_buffer == "xref") {
                 return nullptr;
             }
@@ -1380,7 +1380,7 @@ std::shared_ptr<indirect_object> pdf_file::ref_object(int objnum)
         for(auto i: bodyidx) {
             maxidx = std::max(i+1, maxidx);
         }
-        trailer.add("Size", std::shared_ptr<object>(new integer_number(maxidx)));
+        trailer.add("Size", std::make_shared<integer_number>(maxidx));
         it = std::find(bodyidx.begin(), bodyidx.end(), objnum);
     }
     auto idx = std::distance(bodyidx.begin(), it);
@@ -1480,7 +1480,7 @@ std::shared_ptr<indirect_object> pdf_file::register_object(std::istream &ss, int
                             stream = std::dynamic_pointer_cast<crypt_object>(encrypt)->decode_stream(stream, obj_num, gen_num);
                         }
 
-                        auto streamobj = std::shared_ptr<stream_object>(new stream_object(*dict, stream));
+                        auto streamobj = std::make_shared<stream_object>(*dict, stream);
                         auto indirectobj = ref_object(obj_num);
                         indirectobj->set(streamobj);
 
@@ -1495,651 +1495,6 @@ std::shared_ptr<indirect_object> pdf_file::register_object(std::istream &ss, int
         }
     }
     return nullptr;
-}
-
-void output_png(int n, const std::string &target_path, int page_no, const std::string &key, const std::vector<uint8_t> &data, int width, int height, int rotate = 0)
-{
-    if(rotate == 90 || rotate == 270) {
-        std::swap(width, height);
-    }
-
-    std::filesystem::path path(target_path);
-    std::stringstream ss;
-    ss.fill('0');
-    ss << "page" << std::setw(4) << page_no;
-    path /= ss.str() + "_" + key + ".png";
-
-    FILE *fp = fopen(path.c_str(), "wb");
-    auto png = png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
-    auto info = png_create_info_struct(png);
-    png_init_io(png, fp);
-
-    if(n == 1) {
-        png_set_IHDR(png, info, width, height, 8,
-        PNG_COLOR_TYPE_GRAY, PNG_INTERLACE_NONE, PNG_COMPRESSION_TYPE_DEFAULT,
-        PNG_FILTER_TYPE_DEFAULT);
-    }
-    else if(n == 3) {
-        png_set_IHDR(png, info, width, height, 8,
-        PNG_COLOR_TYPE_RGB, PNG_INTERLACE_NONE, PNG_COMPRESSION_TYPE_DEFAULT,
-        PNG_FILTER_TYPE_DEFAULT);
-    }
-    else if(n == 4) {
-        png_set_IHDR(png, info, width, height, 8,
-        PNG_COLOR_TYPE_RGB_ALPHA, PNG_INTERLACE_NONE, PNG_COMPRESSION_TYPE_DEFAULT,
-        PNG_FILTER_TYPE_DEFAULT);
-    }
-
-    png_bytepp rows = (png_bytepp)png_malloc(png, sizeof(png_bytep) * height);
-    png_set_rows(png, info, rows);
-    memset(rows, 0, sizeof(png_bytep) * height);
-    for (int y = 0; y < height; y++) {
-        rows[y] = (png_bytep)png_malloc(png, sizeof(png_byte) * width * n);
-    }
-    if(rotate == 0) {
-        const uint8_t *datap = data.data();
-        for (int y = 0; y < height; y++) {
-            png_bytep row = rows[y];
-            for (int x = 0; x < width; x++) {
-                for(int c = 0; c < n; c++) {
-                    *row++ = *datap++;
-                }
-            }
-        }
-    }
-    else if(rotate == 90) {
-        for (int y = 0; y < height; y++) {
-            png_bytep row = rows[y];
-            for (int x = 0; x < width; x++) {
-                for(int c = 0; c < n; c++) {
-                    *row++ = data[((width - 1 - x)*height + y) * n + c];
-                }
-            }
-        }
-    }
-    else if(rotate == 180) {
-        for (int y = 0; y < height; y++) {
-            png_bytep row = rows[y];
-            for (int x = 0; x < width; x++) {
-                for(int c = 0; c < n; c++) {
-                    *row++ = data[((height - 1 - y)*width + (width - 1 - x)) * n + c];
-                }
-            }
-        }
-    }
-    else if(rotate == 270) {
-        for (int y = 0; y < height; y++) {
-            png_bytep row = rows[y];
-            for (int x = 0; x < width; x++) {
-                for(int c = 0; c < n; c++) {
-                    *row++ = data[(x * height + (height - 1 - y)) * n + c];
-                }
-            }
-        }
-    }
-    png_write_png(png, info, PNG_TRANSFORM_IDENTITY, NULL);
-    if (rows != NULL) {
-        for (int y = 0; y < height; y++) {
-            png_free(png, rows[y]);
-        }
-        png_free(png, rows);
-    }
-    png_destroy_write_struct(&png, &info);
-    fclose(fp); 
-}
-
-inline unsigned char clamped_cmyk_rgb_convert(
-    unsigned char k,
-    unsigned char cmy) {
-
-    // Inspired from Pillow:
-    // https://github.com/python-pillow/Pillow/blob/07623d1a7cc65206a5355fba2ae256550bfcaba6/src/libImaging/Convert.c#L568-L569
-    int v = 255 * (1 - k / 255.0) * (1 - cmy / 255.0);
-    return std::clamp(v, 0, 255);
-}
-
-std::vector<uint8_t> cmyk_to_rgb(const std::vector<uint8_t> &data, int width, int height)
-{
-    auto src = data.data();
-    std::vector<uint8_t> dst;
-    for(int y = 0; y < height; y++) {
-        for(int x = 0; x < width; x++) {
-            int c = *src++;
-            int m = *src++;
-            int y = *src++;
-            int k = *src++;
-            dst.push_back(clamped_cmyk_rgb_convert(k, c));
-            dst.push_back(clamped_cmyk_rgb_convert(k, m));
-            dst.push_back(clamped_cmyk_rgb_convert(k, y));
-        }
-    }
-    return dst;
-}
-
-void output_cmyk_jpeg_to_png(const std::string &target_path, int page_no, const std::string &key, const std::vector<uint8_t> &data, int rotate = 0)
-{
-    struct jpeg_decompress_struct srcObj;
-    struct jpeg_error_mgr srcErrMgr;
-
-    srcObj.err = jpeg_std_error(&srcErrMgr);
-    jpeg_create_decompress(&srcObj);
-
-    jpeg_mem_src(&srcObj, data.data(), data.size());
-
-    jpeg_read_header(&srcObj, true);
-
-    int width  = srcObj.image_width;
-    int height = srcObj.image_height;
-    int ch = srcObj.num_components;
-
-    std::cout << width << "," << height << "," << ch << std::endl;
-
-    jpeg_start_decompress(&srcObj);
-
-    std::vector<JSAMPROW> line_buffer(srcObj.output_height);
-    std::vector<JSAMPLE> buffer(srcObj.output_height * srcObj.output_width * srcObj.output_components);
-    for(int y = 0; y < srcObj.output_height; ++y){
-        line_buffer[y] = &buffer[srcObj.output_width * srcObj.output_components * y];
-    }
-
-    while(srcObj.output_scanline < srcObj.output_height){
-        jpeg_read_scanlines(&srcObj, line_buffer.data() + srcObj.output_scanline, srcObj.output_height - srcObj.output_scanline);
-    }
-
-    (void)jpeg_finish_decompress(&srcObj);
-    jpeg_destroy_decompress(&srcObj);
-
-    auto rgb = cmyk_to_rgb(buffer, width, height);
-    output_png(3, target_path, page_no, key, rgb, width, height, rotate);
-}
-
-void output_jpeg(const std::string &target_path, int page_no, const std::string &key, const std::vector<uint8_t> &data, int rotate = 0)
-{
-    std::filesystem::path path(target_path);
-    std::stringstream ss;
-    ss.fill('0');
-    ss << "page" << std::setw(4) << page_no;
-    path /= ss.str() + "_" + key + ".jpg";
-
-    {
-        std::ofstream ofs(path, std::ios::binary);
-        ofs.write((const char *)data.data(), data.size());
-    }
-
-    if(rotate == 0) return;
-
-    struct jpeg_decompress_struct srcObj;
-    struct jpeg_error_mgr srcErrMgr;
-    
-    struct jpeg_compress_struct destObj;
-    struct jpeg_error_mgr destErrMgr;
-
-    jpeg_transform_info transformoption;
-    if(rotate == 90) {
-        transformoption.transform = JXFORM_ROT_90;
-    }
-    else if(rotate == 180) {
-        transformoption.transform = JXFORM_ROT_180;
-    }
-    else if(rotate == 270) {
-        transformoption.transform = JXFORM_ROT_270;
-    }
-    transformoption.perfect = FALSE;
-    transformoption.trim = FALSE;
-    transformoption.force_grayscale = FALSE;
-    transformoption.crop = FALSE;
-    transformoption.slow_hflip = FALSE;
-
-    srcObj.err = jpeg_std_error(&srcErrMgr);
-    jpeg_create_decompress(&srcObj);
-
-    destObj.err = jpeg_std_error(&destErrMgr);
-    jpeg_create_compress(&destObj);
-
-    FILE *inputFile = fopen(path.c_str(), "rb");
-    jpeg_stdio_src(&srcObj, inputFile);
-    JCOPY_OPTION copyOpt = JCOPYOPT_DEFAULT;
-
-    jcopy_markers_setup(&srcObj, copyOpt);
-
-    (void)jpeg_read_header(&srcObj, TRUE);
-
-    jtransform_request_workspace(&srcObj, &transformoption);
-
-    auto srcCoefArr = jpeg_read_coefficients(&srcObj);
-    jpeg_copy_critical_parameters(&srcObj, &destObj);
-
-    auto destCoefArr = jtransform_adjust_parameters(&srcObj, &destObj, srcCoefArr, &transformoption);
-
-    fclose(inputFile);
-
-    FILE *outputFile = fopen(path.c_str(), "wb");
-    jpeg_stdio_dest(&destObj, outputFile);
-    
-    jpeg_write_coefficients(&destObj, destCoefArr);
-
-    jcopy_markers_execute(&srcObj, &destObj, copyOpt);
-
-    jtransform_execute_transformation(&srcObj, &destObj, srcCoefArr, &transformoption);
-
-    jpeg_finish_compress(&destObj);
-    jpeg_destroy_compress(&destObj);
-
-    (void)jpeg_finish_decompress(&srcObj);
-    jpeg_destroy_decompress(&srcObj);
-
-    fclose(outputFile);
-}
-
-int pdf_file::extract_images(const std::string &target_path)
-{
-    auto tree = pages->follow<PagesObject>();
-    int page_no = 1;
-    int count = 0;
-    for(auto it = tree->begin(); it != tree->end(); ++it, ++page_no) {
-        auto res = (*it)->operator[]<dictionary_object>("Resources");
-        if(!res) continue;
-        auto rotateobj = (*it)->operator[]<integer_number>("Rotate");
-        int rotate = 0;
-        if(rotateobj) {
-            rotate = rotateobj->get_value();
-        }
-        auto xobject = res->operator[]<dictionary_object>("XObject");
-        if(!xobject) continue;
-
-        for(auto key: xobject->keys()) {
-            auto item = xobject->operator[]<stream_object>(key);
-            auto subtype = item->get_dict().operator[]<name_object>("Subtype");
-            if(subtype && subtype->get_value() == "Image") {
-                std::cout << page_no << ":" << key << std::endl;
-
-                bool invert = false;
-                auto decodeArray = item->get_dict().operator[]<array_object>("Decode");
-                if(decodeArray && decodeArray->size() >= 2) {
-                    auto intvalue = decodeArray->operator[]<integer_number>(0);
-                    if(intvalue && intvalue->get_value() == 1) {
-                        invert = true;
-                    }
-                    auto floatvalue = decodeArray->operator[]<real_number>(0);
-                    if(floatvalue && floatvalue->get_value() == 1) {
-                        invert = true;
-                    }
-                }
-                auto filter = item->get_dict().operator[]<name_object>("Filter");
-                if(filter) {
-                    if(filter->get_value() == "DCTDecode") {
-                        auto ColorSpace = item->get_dict().operator[]<name_object>("ColorSpace");
-                        if(ColorSpace && ColorSpace->get_value() == "DeviceCMYK") {
-                            output_cmyk_jpeg_to_png(target_path, page_no, key, item->get_stream(), rotate);
-                        }
-                        else {
-                            output_jpeg(target_path, page_no, key, item->get_stream(), rotate);
-                        }
-                        count++;
-                    }
-                    if(filter->get_value() == "JBIG2Decode") {
-                        int width = item->get_dict().operator[]<integer_number>("Width")->get_value();
-                        int height = item->get_dict().operator[]<integer_number>("Height")->get_value();
-
-                        auto values = JBIG2Decode(item->get_stream());
-                        if(std::all_of(values.begin(), values.end(), [&](auto i) { return i == values[0]; })) continue;
-                        if(invert) {
-                            for(auto &v: values) {
-                                v = v ^ 0xff;
-                            }
-                        }
-                        output_png(1, target_path, page_no, key, values, width, height, rotate);
-                        count++;
-                    }
-                    if(filter->get_value() == "CCITTFaxDecode") {
-                        int width = item->get_dict().operator[]<integer_number>("Width")->get_value();
-                        int height = item->get_dict().operator[]<integer_number>("Height")->get_value();
-
-                        CCITTFaxDecode_Parms params;
-                        auto decodeParam = item->get_dict().operator[]<dictionary_object>("DecodeParms");
-                        if(decodeParam) {
-                            auto k = decodeParam->operator[]<integer_number>("K");
-                            if(k) {
-                                params.K = k->get_value();
-                            }
-
-                            auto b = decodeParam->operator[]<boolean_value>("EndOfLine");
-                            if(b) {
-                                params.EndOfLine = b->get_value();
-                            }
-
-                            b = decodeParam->operator[]<boolean_value>("EncodedByteAlign");
-                            if(b) {
-                                params.EncodedByteAlign = b->get_value();
-                            }
-
-                            k = decodeParam->operator[]<integer_number>("Columns");
-                            if(k) {
-                                params.Columns = k->get_value();
-                            }
-
-                            k = decodeParam->operator[]<integer_number>("Rows");
-                            if(k) {
-                                params.Rows = k->get_value();
-                            }
-
-                            b = decodeParam->operator[]<boolean_value>("EndOfBlock");
-                            if(b) {
-                                params.EndOfBlock = b->get_value();
-                            }
-
-                            b = decodeParam->operator[]<boolean_value>("BlackIs1");
-                            if(b) {
-                                params.BlackIs1 = b->get_value();
-                            }
-                        }
-                        const auto &values = item->get_stream();
-                        CCITTFaxDecoder decoder(values, params);
-                        auto graybuf = decoder.output();
-                        if(invert) {
-                            for(auto &v: graybuf) {
-                                v = v ^ 0xff;
-                            }
-                        }
-                        output_png(1, target_path, page_no, key, graybuf, width, height, rotate);
-                        count++;
-                    }
-                }
-                else {
-                    auto filters = item->get_dict().operator[]<array_object>("Filter");
-                    if(filters && filters->size() > 0) {
-                        if(filters->operator[]<name_object>(0)->get_value() == "DCTDecode") {
-                            auto ColorSpace = item->get_dict().operator[]<name_object>("ColorSpace");
-                            if(ColorSpace && ColorSpace->get_value() == "DeviceCMYK") {
-                                output_cmyk_jpeg_to_png(target_path, page_no, key, item->get_stream(), rotate);
-                            }
-                            else {
-                                output_jpeg(target_path, page_no, key, item->get_stream(), rotate);
-                            }
-                            count++;
-                        }
-                        if(filters->operator[]<name_object>(0)->get_value() == "JBIG2Decode") {
-                            int width = item->get_dict().operator[]<integer_number>("Width")->get_value();
-                            int height = item->get_dict().operator[]<integer_number>("Height")->get_value();
-
-                            auto values = JBIG2Decode(item->get_stream());
-                            if(std::all_of(values.begin(), values.end(), [&](auto i) { return i == values[0]; })) continue;;
-                            if(invert) {
-                                for(auto &v: values) {
-                                    v = v ^ 0xff;
-                                }
-                            }
-                            output_png(1, target_path, page_no, key, values, width, height, rotate);
-                            count++;
-                        }
-                        if(filters->operator[]<name_object>(0)->get_value() == "CCITTFaxDecode") {
-                            int width = item->get_dict().operator[]<integer_number>("Width")->get_value();
-                            int height = item->get_dict().operator[]<integer_number>("Height")->get_value();
-
-                            CCITTFaxDecode_Parms params;
-                            auto decodeParam = item->get_dict().operator[]<array_object>("DecodeParms");
-                            if(decodeParam) {
-                                auto k = decodeParam->operator[]<dictionary_object>(0)->operator[]<integer_number>("K");
-                                if(k) {
-                                    params.K = k->get_value();
-                                }
-
-                                auto b = decodeParam->operator[]<dictionary_object>(0)->operator[]<boolean_value>("EndOfLine");
-                                if(b) {
-                                    params.EndOfLine = b->get_value();
-                                }
-
-                                b = decodeParam->operator[]<dictionary_object>(0)->operator[]<boolean_value>("EncodedByteAlign");
-                                if(b) {
-                                    params.EncodedByteAlign = b->get_value();
-                                }
-
-                                k = decodeParam->operator[]<dictionary_object>(0)->operator[]<integer_number>("Columns");
-                                if(k) {
-                                    params.Columns = k->get_value();
-                                }
-
-                                k = decodeParam->operator[]<dictionary_object>(0)->operator[]<integer_number>("Rows");
-                                if(k) {
-                                    params.Rows = k->get_value();
-                                }
-
-                                b = decodeParam->operator[]<dictionary_object>(0)->operator[]<boolean_value>("EndOfBlock");
-                                if(b) {
-                                    params.EndOfBlock = b->get_value();
-                                }
-
-                                b = decodeParam->operator[]<dictionary_object>(0)->operator[]<boolean_value>("BlackIs1");
-                                if(b) {
-                                    params.BlackIs1 = b->get_value();
-                                }
-                            }
-                            const auto &values = item->get_stream();
-                            CCITTFaxDecoder decoder(values, params);
-                            auto graybuf = decoder.output();
-                            if(invert) {
-                                for(auto &v: graybuf) {
-                                    v = v ^ 0xff;
-                                }
-                            }
-                            output_png(1, target_path, page_no, key, graybuf, width, height, rotate);
-                            count++;
-                        }
-                    }
-                    else {
-                        // raw image
-                        int width = item->get_dict().operator[]<integer_number>("Width")->get_value();
-                        int height = item->get_dict().operator[]<integer_number>("Height")->get_value();
-                        int bits = item->get_dict().operator[]<integer_number>("BitsPerComponent")->get_value();
-                        auto csObj = item->get_dict().operator[]<array_object>("ColorSpace");
-                        std::shared_ptr<IndexedColorSpace> indexed;
-                        if(csObj) {
-                            indexed = std::shared_ptr<IndexedColorSpace>(new IndexedColorSpace(*csObj));
-                        }
-                        const auto &values = item->get_stream();
-                        if(std::all_of(values.begin(), values.end(), [&](auto i) { return i == values[0]; })) continue;
-                        if(indexed && indexed->isValid) {
-                            std::vector<uint8_t> rgbbuf;
-                            for(const auto &ind: values) {
-                                uint8_t r,g,b;
-                                indexed->lookup(ind, r, g, b);
-                                rgbbuf.push_back(r);
-                                rgbbuf.push_back(g);
-                                rgbbuf.push_back(b);
-                            }
-                            output_png(3, target_path, page_no, key, rgbbuf, width, height, rotate);
-                        }
-                        else if(bits == 8) {
-                            int n = values.size() / (width * height);
-                            output_png(n, target_path, page_no, key, values, width, height, rotate);
-                        }
-                        else if(bits == 1) {
-                            std::vector<uint8_t> graybuf;
-                            bit_stream bstream(values);
-                            int width_b = (width + 7) / 8;
-                            width_b *= 8;
-                            auto it = bstream.begin();
-                            for(int y = 0; y < height; y++) {
-                                for(int x = 0; it != bstream.end() && x < width_b; x++) {
-                                    uint8_t v = *it++ == 0 ? 0 : 0xff;
-                                    if(x < width) {
-                                        graybuf.push_back(v);
-                                    }
-                                }
-                            }
-                            if(invert) {
-                                for(auto &v: graybuf) {
-                                    v = v ^ 0xff;
-                                }
-                            }
-                            output_png(1, target_path, page_no, key, graybuf, width, height, rotate);
-                        }
-                        count++;
-                    }
-                }
-            }
-        }
-    }
-    return count;
-}
-
-int pdf_file::process_json(const std::string &target_path)
-{
-    auto json = read_all_boxes(target_path);
-    if(json.empty()) return 0;
-
-    prepare_font();
-    
-    auto tree = pages->follow<PagesObject>();
-    int page_no = 1;
-    int count = 0;
-    for(auto it = tree->begin(); it != tree->end(); ++it, ++page_no) {
-        auto res = (*it)->operator[]<dictionary_object>("Resources");
-        if(!res) continue;
-        auto rotateobj = (*it)->operator[]<integer_number>("Rotate");
-        int rotate = 0;
-        if(rotateobj) {
-            rotate = rotateobj->get_value();
-        }
-        auto xobject = res->operator[]<dictionary_object>("XObject");
-        if(!xobject) continue;
-
-        for(auto key: xobject->keys()) {
-            auto item = xobject->operator[]<stream_object>(key);
-            auto subtype = item->get_dict().operator[]<name_object>("Subtype");
-            if(subtype && subtype->get_value() == "Image") {
-                std::stringstream ss;
-                ss.fill('0');
-                ss << "page" << std::setw(4) << page_no;
-                auto path_jpg = ss.str() + "_" + key + ".jpg";
-                auto path_png = ss.str() + "_" + key + ".png";
-                std::vector<charbox> box;
-                std::string jsonname;
-                if(json.count(path_jpg) > 0) {
-                    jsonname = path_jpg;
-                }
-                else if(json.count(path_png) > 0) {
-                    jsonname = path_png;
-                }
-                else {
-                    continue;
-                }
-
-                box = json[jsonname];
-
-                if(box.size() == 0) {
-                    std::cerr << "OCR json load failed: " << jsonname << std::endl;
-                    continue;
-                }
-
-                int width = item->get_dict().operator[]<integer_number>("Width")->get_value();
-                int height = item->get_dict().operator[]<integer_number>("Height")->get_value();
-
-                std::cout << page_no << ":" << key << " size:" << width << " x " << height << std::endl;
-                if(add_image(*it, key, width, height, rotate, box)) {
-                    count++;
-                }
-            }
-        }
-    }
-    return count;
-}
-
-int pdf_file::process_images(const std::string &target_path)
-{
-    prepare_font();
-
-    auto tree = pages->follow<PagesObject>();
-    int page_no = 1;
-    int count = 0;
-    for(auto it = tree->begin(); it != tree->end(); ++it, ++page_no) {
-        auto res = (*it)->operator[]<dictionary_object>("Resources");
-        if(!res) continue;
-        auto rotateobj = (*it)->operator[]<integer_number>("Rotate");
-        int rotate = 0;
-        if(rotateobj) {
-            rotate = rotateobj->get_value();
-        }
-        auto xobject = res->operator[]<dictionary_object>("XObject");
-        if(!xobject) continue;
-
-        for(auto key: xobject->keys()) {
-            auto item = xobject->operator[]<stream_object>(key);
-            auto subtype = item->get_dict().operator[]<name_object>("Subtype");
-            if(subtype && subtype->get_value() == "Image") {
-                std::stringstream ss;
-                ss.fill('0');
-                ss << "page" << std::setw(4) << page_no;
-                std::filesystem::path path_jpg(target_path);
-                std::filesystem::path path_png(target_path);
-                path_jpg /= ss.str() + "_" + key + ".jpg";
-                path_png /= ss.str() + "_" + key + ".png";
-                std::string jsonname;
-                if(std::filesystem::exists(path_jpg)) {
-                    jsonname = path_jpg.string() + ".json";
-                    if(!std::filesystem::exists(jsonname)) {
-                        continue;
-                    }
-                }
-                else if(std::filesystem::exists(path_png)) {
-                    jsonname = path_png.string() + ".json";
-                    if(!std::filesystem::exists(jsonname)) {
-                        continue;
-                    }
-                }
-                else {
-                    continue;
-                }
-
-                auto box = read_boxes(jsonname);
-                if(box.size() == 0) {
-                    std::cerr << "OCR json load failed: " << jsonname << std::endl;
-                }
-
-                int width = item->get_dict().operator[]<integer_number>("Width")->get_value();
-                int height = item->get_dict().operator[]<integer_number>("Height")->get_value();
-
-                std::cout << page_no << ":" << key << " size:" << width << " x " << height << std::endl;
-                if(add_image(*it, key, width, height, rotate, box)) {
-                    count++;
-                }
-            }
-        }
-    }
-    return count;
-}
-
-void rotate90(float &x, float &y, float &w, float &h, float imwidth, float imheight, int rotate)
-{
-    while(rotate >= 360) {
-        rotate -= 360;
-    }
-    while(rotate < 0) {
-        rotate += 360;
-    }
-
-    if(rotate == 0) {
-    }
-    else if(rotate == 90) {
-        auto cx = y;
-        auto cy = imheight - x;
-        x = cx;
-        y = cy;
-        std::swap(w, h);
-    }
-    else if(rotate == 180) {
-        auto cx = imwidth - x;
-        auto cy = imheight - y;
-        x = cx;
-        y = cy;
-    }
-    else if(rotate == 270) {
-        auto cx = imwidth - y;
-        auto cy = x;
-        x = cx;
-        y = cy;
-        std::swap(w, h);
-    }
 }
 
 static std::vector<std::string> operators = {
@@ -2218,6 +1573,696 @@ static std::vector<std::string> operators = {
     "\"",
 };
 
+void output_png(int n, const std::string &target_path, int page_no, const std::string &key, const std::vector<uint8_t> &data, int width, int height, Orientation rotate = up)
+{
+    if(rotate == right || rotate == left || rotate == rightMirrored || rotate == leftMirrored) {
+        std::swap(width, height);
+    }
+
+    std::filesystem::path path(target_path);
+    std::stringstream ss;
+    ss.fill('0');
+    ss << "page" << std::setw(4) << page_no;
+    path /= ss.str() + "_" + key + ".png";
+
+    FILE *fp = fopen(path.c_str(), "wb");
+    auto png = png_create_write_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
+    auto info = png_create_info_struct(png);
+    png_init_io(png, fp);
+
+    if(n == 1) {
+        png_set_IHDR(png, info, width, height, 8,
+        PNG_COLOR_TYPE_GRAY, PNG_INTERLACE_NONE, PNG_COMPRESSION_TYPE_DEFAULT,
+        PNG_FILTER_TYPE_DEFAULT);
+    }
+    else if(n == 3) {
+        png_set_IHDR(png, info, width, height, 8,
+        PNG_COLOR_TYPE_RGB, PNG_INTERLACE_NONE, PNG_COMPRESSION_TYPE_DEFAULT,
+        PNG_FILTER_TYPE_DEFAULT);
+    }
+    else if(n == 4) {
+        png_set_IHDR(png, info, width, height, 8,
+        PNG_COLOR_TYPE_RGB_ALPHA, PNG_INTERLACE_NONE, PNG_COMPRESSION_TYPE_DEFAULT,
+        PNG_FILTER_TYPE_DEFAULT);
+    }
+
+    png_bytepp rows = (png_bytepp)png_malloc(png, sizeof(png_bytep) * height);
+    png_set_rows(png, info, rows);
+    memset(rows, 0, sizeof(png_bytep) * height);
+    for (int y = 0; y < height; y++) {
+        rows[y] = (png_bytep)png_malloc(png, sizeof(png_byte) * width * n);
+    }
+    if(rotate == up) {
+        for (int y = 0; y < height; y++) {
+            png_bytep row = rows[y];
+            for (int x = 0; x < width; x++) {
+                for(int c = 0; c < n; c++) {
+                    *row++ = data[(y * width + x) * n + c];
+                }
+            }
+        }
+    }
+    else if(rotate == upMirrored) {
+        for (int y = 0; y < height; y++) {
+            png_bytep row = rows[y];
+            for (int x = 0; x < width; x++) {
+                for(int c = 0; c < n; c++) {
+                    *row++ = data[(y * width + (width - 1 - x)) * n + c];
+                }
+            }
+        }
+    }
+    else if(rotate == downMirrored) {
+        for (int y = 0; y < height; y++) {
+            png_bytep row = rows[y];
+            for (int x = 0; x < width; x++) {
+                for(int c = 0; c < n; c++) {
+                    *row++ = data[((height - 1 - y) * width + x) * n + c];
+                }
+            }
+        }
+    }
+    else if(rotate == right) {
+        for (int y = 0; y < height; y++) {
+            png_bytep row = rows[y];
+            for (int x = 0; x < width; x++) {
+                for(int c = 0; c < n; c++) {
+                    *row++ = data[((width - 1 - x)*height + y) * n + c];
+                }
+            }
+        }
+    }
+    else if(rotate == down) {
+        for (int y = 0; y < height; y++) {
+            png_bytep row = rows[y];
+            for (int x = 0; x < width; x++) {
+                for(int c = 0; c < n; c++) {
+                    *row++ = data[((height - 1 - y)*width + (width - 1 - x)) * n + c];
+                }
+            }
+        }
+    }
+    else if(rotate == left) {
+        for (int y = 0; y < height; y++) {
+            png_bytep row = rows[y];
+            for (int x = 0; x < width; x++) {
+                for(int c = 0; c < n; c++) {
+                    *row++ = data[(x * height + (height - 1 - y)) * n + c];
+                }
+            }
+        }
+    }
+    else if(rotate == leftMirrored) {
+        for (int y = 0; y < height; y++) {
+            png_bytep row = rows[y];
+            for (int x = 0; x < width; x++) {
+                for(int c = 0; c < n; c++) {
+                    *row++ = data[(x * height + y) * n + c];
+                }
+            }
+        }
+    }
+    else if(rotate == rightMirrored) {
+        for (int y = 0; y < height; y++) {
+            png_bytep row = rows[y];
+            for (int x = 0; x < width; x++) {
+                for(int c = 0; c < n; c++) {
+                    *row++ = data[((width - 1 - x)*height + (height - 1 - y)) * n + c];
+                }
+            }
+        }
+    }
+
+    png_write_png(png, info, PNG_TRANSFORM_IDENTITY, NULL);
+    if (rows != NULL) {
+        for (int y = 0; y < height; y++) {
+            png_free(png, rows[y]);
+        }
+        png_free(png, rows);
+    }
+    png_destroy_write_struct(&png, &info);
+    fclose(fp); 
+}
+
+inline unsigned char clamped_cmyk_rgb_convert(
+    unsigned char k,
+    unsigned char cmy) {
+
+    // Inspired from Pillow:
+    // https://github.com/python-pillow/Pillow/blob/07623d1a7cc65206a5355fba2ae256550bfcaba6/src/libImaging/Convert.c#L568-L569
+    int v = 255 * (1 - k / 255.0) * (1 - cmy / 255.0);
+    return std::clamp(v, 0, 255);
+}
+
+std::vector<uint8_t> cmyk_to_rgb(const std::vector<uint8_t> &data, int width, int height)
+{
+    auto src = data.data();
+    std::vector<uint8_t> dst;
+    for(int y = 0; y < height; y++) {
+        for(int x = 0; x < width; x++) {
+            int c = *src++;
+            int m = *src++;
+            int y = *src++;
+            int k = *src++;
+            dst.push_back(clamped_cmyk_rgb_convert(k, c));
+            dst.push_back(clamped_cmyk_rgb_convert(k, m));
+            dst.push_back(clamped_cmyk_rgb_convert(k, y));
+        }
+    }
+    return dst;
+}
+
+std::vector<uint8_t> decode_jpeg(const std::vector<uint8_t> &data, int &channel)
+{
+    struct jpeg_decompress_struct srcObj;
+    struct jpeg_error_mgr srcErrMgr;
+
+    srcObj.err = jpeg_std_error(&srcErrMgr);
+    jpeg_create_decompress(&srcObj);
+
+    jpeg_mem_src(&srcObj, data.data(), data.size());
+
+    jpeg_read_header(&srcObj, true);
+
+    int width  = srcObj.image_width;
+    int height = srcObj.image_height;
+    channel = srcObj.num_components;
+
+    jpeg_start_decompress(&srcObj);
+
+    std::vector<JSAMPROW> line_buffer(srcObj.output_height);
+    std::vector<uint8_t> buffer(srcObj.output_height * srcObj.output_width * srcObj.output_components);
+    for(int y = 0; y < srcObj.output_height; ++y){
+        line_buffer[y] = &buffer[srcObj.output_width * srcObj.output_components * y];
+    }
+
+    while(srcObj.output_scanline < srcObj.output_height){
+        jpeg_read_scanlines(&srcObj, line_buffer.data() + srcObj.output_scanline, srcObj.output_height - srcObj.output_scanline);
+    }
+
+    (void)jpeg_finish_decompress(&srcObj);
+    jpeg_destroy_decompress(&srcObj);
+
+    return buffer;
+}
+
+struct user_data {
+    std::vector<uint8_t> data;
+    size_t p;
+};
+
+OPJ_SIZE_T stream_read_fn(void *p_buffer, OPJ_SIZE_T p_nb_bytes, void *p_user_data)
+{
+    auto data = (user_data*)(p_user_data);
+    auto ret = std::min(data->data.size() - data->p, p_nb_bytes);
+    if(ret == 0) return -1;
+    memcpy(p_buffer, data->data.data() + data->p, ret);
+    data->p += ret;
+    return ret;
+}
+
+OPJ_BOOL stream_seek_fn(OPJ_OFF_T p_nb_bytes, void *p_user_data)
+{
+    auto data = (user_data*)(p_user_data);
+    data->p = p_nb_bytes;
+    return OPJ_TRUE;
+}
+
+OPJ_OFF_T stream_skip_fn(OPJ_OFF_T p_nb_bytes, void *p_user_data)
+{
+    auto data = (user_data*)(p_user_data);
+    data->p += p_nb_bytes;
+    return p_nb_bytes;
+}
+
+std::vector<uint8_t> decode_jpeg2000(const std::vector<uint8_t> &data, int &numOfChannels)
+{
+    opj_image_t *outputImage = nullptr;
+    std::shared_ptr<opj_dparameters> decodeParameters = std::make_shared<opj_dparameters>();
+    memset(decodeParameters.get(), 0, sizeof(opj_dparameters));
+
+    opj_set_default_decoder_parameters(decodeParameters.get());
+    decodeParameters->decod_format = 1;
+    decodeParameters->cod_format = 2;
+
+    // {
+    //     std::ofstream ofs("tmp.jpg", std::ios_base::binary);
+    //     ofs.write((const char *)data.data(), data.size());
+    // }
+    // std::strncpy(decodeParameters->infile, "tmp.jpg", OPJ_PATH_LEN);
+    // auto inStream = opj_stream_create_default_file_stream(decodeParameters->infile, true);
+
+    user_data udata = {data, 0};
+    auto inStream = opj_stream_create(data.size(), true);
+    opj_stream_set_user_data(inStream, &udata, nullptr);
+    opj_stream_set_user_data_length(inStream, data.size());
+    opj_stream_set_read_function(inStream, stream_read_fn);
+    opj_stream_set_seek_function(inStream, stream_seek_fn);
+    opj_stream_set_skip_function(inStream, stream_skip_fn);
+
+    auto decompressorCodec = opj_create_decompress(OPJ_CODEC_JP2);
+
+    opj_setup_decoder(decompressorCodec, decodeParameters.get());
+    opj_codec_set_threads(decompressorCodec, 4);
+
+    opj_read_header(inStream, decompressorCodec, &outputImage);
+    opj_decode(decompressorCodec, inStream, outputImage);
+    opj_end_decompress(decompressorCodec, inStream);
+
+    int width  = outputImage->x1 - outputImage->x0;
+    int height = outputImage->y1 - outputImage->y0;
+    numOfChannels = outputImage->numcomps;
+
+    std::cout << width << "," << height << "," << numOfChannels << std::endl;
+
+    std::vector<uint8_t> buffer(width * height * numOfChannels);
+
+    for (uint32_t channel = 0; channel < numOfChannels; channel++) {
+        for (uint32_t row = 0; row < height; row++) {
+            uint32_t fromRowStart = row / outputImage->comps[channel].dy * width / outputImage->comps[channel].dx;
+            uint32_t toIndex = (row * width) * numOfChannels + channel;
+            for (uint32_t col = 0; col < width; col++) {
+                uint32_t fromIndex = fromRowStart + col / outputImage->comps[channel].dx;
+                buffer[toIndex] = (uint8_t)(outputImage->comps[channel].data[fromIndex]);
+                toIndex += numOfChannels;
+            }
+        }
+    }
+ 
+    if (inStream) {
+        opj_stream_destroy(inStream);
+    }
+    if (decompressorCodec) {
+        opj_destroy_codec(decompressorCodec);
+    }
+    if (outputImage) {
+        opj_image_destroy(outputImage);
+    }
+
+    return buffer;
+}
+
+Orientation get_angle(std::shared_ptr<PageObject> page, const std::string &key);
+
+Orientation add_rotate(Orientation org, int rotate)
+{
+    while(rotate >= 360) {
+        rotate -= 360;
+    }
+    while(rotate < 0) {
+        rotate += 360;
+    }
+    switch (rotate)
+    {
+        case 0:
+            return org;
+            
+        case 90:
+            if(org == up) {
+                return right;
+            }
+            if(org == right) {
+                return down;
+            }
+            if(org == down) {
+                return left;
+            }
+            if(org == left) {
+                return up;
+            }
+            if(org == upMirrored) {
+                return rightMirrored;
+            }
+            if(org == rightMirrored) {
+                return upMirrored;
+            }
+            if(org == leftMirrored) {
+                return downMirrored;
+            }
+            if(org == downMirrored) {
+                return leftMirrored;
+            }
+            
+        case 180:
+            if(org == up) {
+                return right;
+            }
+            if(org == right) {
+                return down;
+            }
+            if(org == down) {
+                return left;
+            }
+            if(org == left) {
+                return up;
+            }
+            if(org == upMirrored) {
+                return rightMirrored;
+            }
+            if(org == rightMirrored) {
+                return upMirrored;
+            }
+            if(org == leftMirrored) {
+                return downMirrored;
+            }
+            if(org == downMirrored) {
+                return leftMirrored;
+            }
+            
+        case 270:
+            if(org == up) {
+                return left;
+            }
+            if(org == left) {
+                return down;
+            }
+            if(org == down) {
+                return right;
+            }
+            if(org == right) {
+                return up;
+            }
+            if(org == upMirrored) {
+                return leftMirrored;
+            }
+            if(org == leftMirrored) {
+                return upMirrored;
+            }
+            if(org == rightMirrored) {
+                return downMirrored;
+            }
+            if(org == downMirrored) {
+                return rightMirrored;
+            }
+            
+        default:
+            return org;
+    }
+}
+
+int pdf_file::extract_images(const std::string &target_path)
+{
+    auto tree = pages->follow<PagesObject>();
+    int page_no = 1;
+    int count = 0;
+    for(auto it = tree->begin(); it != tree->end(); ++it, ++page_no) {
+        auto res = (*it)->operator[]<dictionary_object>("Resources");
+        if(!res) continue;
+        auto rotateobj = (*it)->operator[]<integer_number>("Rotate");
+        int rotate = 0;
+        if(rotateobj) {
+            rotate = rotateobj->get_value();
+        }
+        auto xobject = res->operator[]<dictionary_object>("XObject");
+        if(!xobject) continue;
+
+        for(auto key: xobject->keys()) {
+            auto item = xobject->operator[]<stream_object>(key);
+            auto subtype = item->get_dict().operator[]<name_object>("Subtype");
+            if(subtype && subtype->get_value() == "Image") {
+                std::cout << page_no << ":" << key << std::endl;
+
+                auto angle = get_angle(*it, key);
+                auto fix_rotate = add_rotate(angle, rotate);
+
+                bool invert = false;
+                auto decodeArray = item->get_dict().operator[]<array_object>("Decode");
+                if(decodeArray && decodeArray->size() >= 2) {
+                    auto intvalue = decodeArray->operator[]<integer_number>(0);
+                    if(intvalue && intvalue->get_value() == 1) {
+                        invert = true;
+                    }
+                    auto floatvalue = decodeArray->operator[]<real_number>(0);
+                    if(floatvalue && floatvalue->get_value() == 1) {
+                        invert = true;
+                    }
+                }
+                auto filter = item->get_dict().operator[]<name_object>("Filter");
+                if(filter) {
+                    if(filter->get_value() == "DCTDecode") {
+                        int width = item->get_dict().operator[]<integer_number>("Width")->get_value();
+                        int height = item->get_dict().operator[]<integer_number>("Height")->get_value();
+                        auto ColorSpace = item->get_dict().operator[]<name_object>("ColorSpace");
+                        if(ColorSpace && ColorSpace->get_value() == "DeviceCMYK") {
+                            int n = 0;
+                            auto values = decode_jpeg(item->get_stream(), n);
+                            auto rgbbuffer = cmyk_to_rgb(values, width, height);
+                            output_png(3, target_path, page_no, key, rgbbuffer, width, height, fix_rotate);
+                        }
+                        else {
+                            int n = 0;
+                            auto values = decode_jpeg(item->get_stream(), n);
+                            output_png(n, target_path, page_no, key, values, width, height, fix_rotate);
+                        }
+                        count++;
+                    }
+                    if(filter->get_value() == "JPXDecode") {
+                        int width = item->get_dict().operator[]<integer_number>("Width")->get_value();
+                        int height = item->get_dict().operator[]<integer_number>("Height")->get_value();
+                        auto ColorSpace = item->get_dict().operator[]<name_object>("ColorSpace");
+                        if(ColorSpace && ColorSpace->get_value() == "DeviceCMYK") {
+                            int n = 0;
+                            auto values = decode_jpeg2000(item->get_stream(), n);
+                            auto rgbbuffer = cmyk_to_rgb(values, width, height);
+                            output_png(3, target_path, page_no, key, rgbbuffer, width, height, fix_rotate);
+                        }
+                        else {
+                            int n = 0;
+                            auto values = decode_jpeg2000(item->get_stream(), n);
+                            output_png(n, target_path, page_no, key, values, width, height, fix_rotate);
+                        }
+                        count++;
+                    }
+                    if(filter->get_value() == "JBIG2Decode") {
+                        int width = item->get_dict().operator[]<integer_number>("Width")->get_value();
+                        int height = item->get_dict().operator[]<integer_number>("Height")->get_value();
+
+                        auto values = JBIG2Decode(item->get_stream());
+                        if(std::all_of(values.begin(), values.end(), [&](auto i) { return i == values[0]; })) continue;
+                        if(invert) {
+                            for(auto &v: values) {
+                                v = v ^ 0xff;
+                            }
+                        }
+                        output_png(1, target_path, page_no, key, values, width, height, fix_rotate);
+                        count++;
+                    }
+                    if(filter->get_value() == "CCITTFaxDecode") {
+                        int width = item->get_dict().operator[]<integer_number>("Width")->get_value();
+                        int height = item->get_dict().operator[]<integer_number>("Height")->get_value();
+
+                        CCITTFaxDecode_Parms params;
+                        auto decodeParam = item->get_dict().operator[]<dictionary_object>("DecodeParms");
+                        if(decodeParam) {
+                            auto k = decodeParam->operator[]<integer_number>("K");
+                            if(k) {
+                                params.K = k->get_value();
+                            }
+
+                            auto b = decodeParam->operator[]<boolean_value>("EndOfLine");
+                            if(b) {
+                                params.EndOfLine = b->get_value();
+                            }
+
+                            b = decodeParam->operator[]<boolean_value>("EncodedByteAlign");
+                            if(b) {
+                                params.EncodedByteAlign = b->get_value();
+                            }
+
+                            k = decodeParam->operator[]<integer_number>("Columns");
+                            if(k) {
+                                params.Columns = k->get_value();
+                            }
+
+                            k = decodeParam->operator[]<integer_number>("Rows");
+                            if(k) {
+                                params.Rows = k->get_value();
+                            }
+
+                            b = decodeParam->operator[]<boolean_value>("EndOfBlock");
+                            if(b) {
+                                params.EndOfBlock = b->get_value();
+                            }
+
+                            b = decodeParam->operator[]<boolean_value>("BlackIs1");
+                            if(b) {
+                                params.BlackIs1 = b->get_value();
+                            }
+                        }
+                        const auto &values = item->get_stream();
+                        CCITTFaxDecoder decoder(values, params);
+                        auto graybuf = decoder.output();
+                        if(invert) {
+                            for(auto &v: graybuf) {
+                                v = v ^ 0xff;
+                            }
+                        }
+                        output_png(1, target_path, page_no, key, graybuf, width, height, fix_rotate);
+                        count++;
+                    }
+                }
+                else {
+                    auto filters = item->get_dict().operator[]<array_object>("Filter");
+                    if(filters && filters->size() > 0) {
+                        if(filters->operator[]<name_object>(0)->get_value() == "DCTDecode") {
+                            int width = item->get_dict().operator[]<integer_number>("Width")->get_value();
+                            int height = item->get_dict().operator[]<integer_number>("Height")->get_value();
+                            auto ColorSpace = item->get_dict().operator[]<name_object>("ColorSpace");
+                            if(ColorSpace && ColorSpace->get_value() == "DeviceCMYK") {
+                                int n = 0;
+                                auto values = decode_jpeg(item->get_stream(), n);
+                                auto rgbbuffer = cmyk_to_rgb(values, width, height);
+                                output_png(3, target_path, page_no, key, rgbbuffer, width, height, fix_rotate);
+                            }
+                            else {
+                                int n = 0;
+                                auto values = decode_jpeg(item->get_stream(), n);
+                                output_png(n, target_path, page_no, key, values, width, height, fix_rotate);
+                            }
+                            count++;
+                        }
+                        if(filters->operator[]<name_object>(0)->get_value() == "JPXDecode") {
+                            int width = item->get_dict().operator[]<integer_number>("Width")->get_value();
+                            int height = item->get_dict().operator[]<integer_number>("Height")->get_value();
+                            auto ColorSpace = item->get_dict().operator[]<name_object>("ColorSpace");
+                            if(ColorSpace && ColorSpace->get_value() == "DeviceCMYK") {
+                                int n = 0;
+                                auto values = decode_jpeg(item->get_stream(), n);
+                                auto rgbbuffer = cmyk_to_rgb(values, width, height);
+                                output_png(3, target_path, page_no, key, rgbbuffer, width, height, fix_rotate);
+                            }
+                            else {
+                                int n = 0;
+                                auto values = decode_jpeg(item->get_stream(), n);
+                                output_png(n, target_path, page_no, key, values, width, height, fix_rotate);
+                            }
+                            count++;
+                        }
+                        if(filters->operator[]<name_object>(0)->get_value() == "JBIG2Decode") {
+                            int width = item->get_dict().operator[]<integer_number>("Width")->get_value();
+                            int height = item->get_dict().operator[]<integer_number>("Height")->get_value();
+
+                            auto values = JBIG2Decode(item->get_stream());
+                            if(std::all_of(values.begin(), values.end(), [&](auto i) { return i == values[0]; })) continue;;
+                            if(invert) {
+                                for(auto &v: values) {
+                                    v = v ^ 0xff;
+                                }
+                            }
+                            output_png(1, target_path, page_no, key, values, width, height, fix_rotate);
+                            count++;
+                        }
+                        if(filters->operator[]<name_object>(0)->get_value() == "CCITTFaxDecode") {
+                            int width = item->get_dict().operator[]<integer_number>("Width")->get_value();
+                            int height = item->get_dict().operator[]<integer_number>("Height")->get_value();
+
+                            CCITTFaxDecode_Parms params;
+                            auto decodeParam = item->get_dict().operator[]<array_object>("DecodeParms");
+                            if(decodeParam) {
+                                auto k = decodeParam->operator[]<dictionary_object>(0)->operator[]<integer_number>("K");
+                                if(k) {
+                                    params.K = k->get_value();
+                                }
+
+                                auto b = decodeParam->operator[]<dictionary_object>(0)->operator[]<boolean_value>("EndOfLine");
+                                if(b) {
+                                    params.EndOfLine = b->get_value();
+                                }
+
+                                b = decodeParam->operator[]<dictionary_object>(0)->operator[]<boolean_value>("EncodedByteAlign");
+                                if(b) {
+                                    params.EncodedByteAlign = b->get_value();
+                                }
+
+                                k = decodeParam->operator[]<dictionary_object>(0)->operator[]<integer_number>("Columns");
+                                if(k) {
+                                    params.Columns = k->get_value();
+                                }
+
+                                k = decodeParam->operator[]<dictionary_object>(0)->operator[]<integer_number>("Rows");
+                                if(k) {
+                                    params.Rows = k->get_value();
+                                }
+
+                                b = decodeParam->operator[]<dictionary_object>(0)->operator[]<boolean_value>("EndOfBlock");
+                                if(b) {
+                                    params.EndOfBlock = b->get_value();
+                                }
+
+                                b = decodeParam->operator[]<dictionary_object>(0)->operator[]<boolean_value>("BlackIs1");
+                                if(b) {
+                                    params.BlackIs1 = b->get_value();
+                                }
+                            }
+                            const auto &values = item->get_stream();
+                            CCITTFaxDecoder decoder(values, params);
+                            auto graybuf = decoder.output();
+                            if(invert) {
+                                for(auto &v: graybuf) {
+                                    v = v ^ 0xff;
+                                }
+                            }
+                            output_png(1, target_path, page_no, key, graybuf, width, height, fix_rotate);
+                            count++;
+                        }
+                    }
+                    else {
+                        // raw image
+                        int width = item->get_dict().operator[]<integer_number>("Width")->get_value();
+                        int height = item->get_dict().operator[]<integer_number>("Height")->get_value();
+                        int bits = item->get_dict().operator[]<integer_number>("BitsPerComponent")->get_value();
+                        auto csObj = item->get_dict().operator[]<array_object>("ColorSpace");
+                        std::shared_ptr<IndexedColorSpace> indexed;
+                        if(csObj) {
+                            indexed = std::make_shared<IndexedColorSpace>(*csObj);
+                        }
+                        const auto &values = item->get_stream();
+                        if(std::all_of(values.begin(), values.end(), [&](auto i) { return i == values[0]; })) continue;
+                        if(indexed && indexed->isValid) {
+                            std::vector<uint8_t> rgbbuf;
+                            for(const auto &ind: values) {
+                                uint8_t r,g,b;
+                                indexed->lookup(ind, r, g, b);
+                                rgbbuf.push_back(r);
+                                rgbbuf.push_back(g);
+                                rgbbuf.push_back(b);
+                            }
+                            output_png(3, target_path, page_no, key, rgbbuf, width, height, fix_rotate);
+                        }
+                        else if(bits == 8) {
+                            int n = values.size() / (width * height);
+                            output_png(n, target_path, page_no, key, values, width, height, fix_rotate);
+                        }
+                        else if(bits == 1) {
+                            std::vector<uint8_t> graybuf;
+                            bit_stream bstream(values);
+                            int width_b = (width + 7) / 8;
+                            width_b *= 8;
+                            auto it = bstream.begin();
+                            for(int y = 0; y < height; y++) {
+                                for(int x = 0; it != bstream.end() && x < width_b; x++) {
+                                    uint8_t v = *it++ == 0 ? 0 : 0xff;
+                                    if(x < width) {
+                                        graybuf.push_back(v);
+                                    }
+                                }
+                            }
+                            if(invert) {
+                                for(auto &v: graybuf) {
+                                    v = v ^ 0xff;
+                                }
+                            }
+                            output_png(1, target_path, page_no, key, graybuf, width, height, fix_rotate);
+                        }
+                        count++;
+                    }
+                }
+            }
+        }
+    }
+    return count;
+}
+
 std::vector<uint8_t> remove_transparent_text(const std::vector<uint8_t> stream)
 {
     std::string work;
@@ -2291,10 +2336,548 @@ std::vector<uint8_t> remove_transparent_text(const std::vector<uint8_t> stream)
         }
     }
 
+    std::string resultbuf;
+    int cr = 0;
+    int lf = 0;
+    for(char c: streambuf) {
+        if(c == 0x0d) {
+            cr++;
+        }
+        else if(c == 0x0a) {
+            lf++;
+        }
+    }
+    if(cr == lf) {
+        resultbuf = streambuf;
+    }
+    else if(cr > 0) {
+        for(char c: streambuf) {
+            if(c == 0x0d) {
+                resultbuf += 0x0d;
+                resultbuf += 0x0a;
+            }
+            else {
+                resultbuf += c;
+            }
+        }
+    }
+    else {
+        for(char c: streambuf) {
+            if(c == 0x0a) {
+                resultbuf += 0x0d;
+                resultbuf += 0x0a;
+            }
+            else {
+                resultbuf += c;
+            }
+        }
+    }
     std::vector<uint8_t> result;
-    std::copy(streambuf.begin(), streambuf.end(), std::back_inserter(result));
+    std::copy(resultbuf.begin(), resultbuf.end(), std::back_inserter(result));
 
     return result;
+}
+
+int pdf_file::process_json(const std::string &target_path)
+{
+    auto json = read_all_boxes(target_path);
+    if(json.empty()) return 0;
+
+    prepare_font();
+    
+    auto tree = pages->follow<PagesObject>();
+    int page_no = 1;
+    int count = 0;
+    for(auto it = tree->begin(); it != tree->end(); ++it, ++page_no) {
+        auto res = (*it)->operator[]<dictionary_object>("Resources");
+        if(!res) continue;
+        auto rotateobj = (*it)->operator[]<integer_number>("Rotate");
+        int rotate = 0;
+        if(rotateobj) {
+            rotate = rotateobj->get_value();
+        }
+        auto xobject = res->operator[]<dictionary_object>("XObject");
+        if(!xobject) continue;
+
+        bool need_to_process = false;
+        for(auto key: xobject->keys()) {
+            auto item = xobject->operator[]<indirect_object>(key)->follow<stream_object>();
+            auto subtype = item->get_dict().operator[]<name_object>("Subtype");
+            if(subtype && subtype->get_value() == "Image") {
+                std::stringstream ss;
+                ss.fill('0');
+                ss << "page" << std::setw(4) << page_no;
+                auto path_jpg = ss.str() + "_" + key + ".jpg";
+                auto path_png = ss.str() + "_" + key + ".png";
+                std::vector<charbox> box;
+                std::string jsonname;
+                if(json.count(path_jpg) > 0) {
+                    jsonname = path_jpg;
+                }
+                else if(json.count(path_png) > 0) {
+                    jsonname = path_png;
+                }
+                else {
+                    continue;
+                }
+
+                box = json[jsonname];
+
+                if(box.size() == 0) {
+                    std::cerr << "OCR json load failed: " << jsonname << std::endl;
+                    continue;
+                }
+                
+                need_to_process = true;
+                break;
+            }
+        }
+
+        if(!need_to_process) continue;
+        
+        auto content = (*it)->operator[]<stream_object>("Contents");
+        if(content) {
+            auto striped_stream = remove_transparent_text(content->get_stream());
+            content = std::make_shared<stream_object>(content->get_dict(), striped_stream);
+        }
+        else {
+            auto content_array = (*it)->operator[]<array_object>("Contents");
+            if(!content_array) return false;
+
+            std::vector<uint8_t> stream;
+            dictionary_object dict;
+            for(int i = 0; i < content_array->size(); i++) {
+                auto p = content_array->operator[]<stream_object>(i);
+                if(p) {
+                    std::copy(p->get_stream().begin(), p->get_stream().end(), std::back_inserter(stream));
+                }
+                dict = p->get_dict();
+            }
+
+            auto striped_stream = remove_transparent_text(stream);
+            content = std::make_shared<stream_object>(dict, striped_stream);
+        }
+        if(!content) continue;
+
+        auto newObj = add_object(content);
+        (*it)->add("Contents", newObj);
+
+        for(auto key: xobject->keys()) {
+            auto item = xobject->operator[]<stream_object>(key);
+            auto subtype = item->get_dict().operator[]<name_object>("Subtype");
+            if(subtype && subtype->get_value() == "Image") {
+                std::stringstream ss;
+                ss.fill('0');
+                ss << "page" << std::setw(4) << page_no;
+                auto path_jpg = ss.str() + "_" + key + ".jpg";
+                auto path_png = ss.str() + "_" + key + ".png";
+                std::vector<charbox> box;
+                std::string jsonname;
+                if(json.count(path_jpg) > 0) {
+                    jsonname = path_jpg;
+                }
+                else if(json.count(path_png) > 0) {
+                    jsonname = path_png;
+                }
+                else {
+                    continue;
+                }
+
+                box = json[jsonname];
+
+                if(box.size() == 0) {
+                    std::cerr << "OCR json load failed: " << jsonname << std::endl;
+                    continue;
+                }
+
+                int width = item->get_dict().operator[]<integer_number>("Width")->get_value();
+                int height = item->get_dict().operator[]<integer_number>("Height")->get_value();
+
+                std::cout << page_no << ":" << key << " size:" << width << " x " << height << std::endl;
+                if(add_image(*it, key, width, height, rotate, box)) {
+                    count++;
+                }
+            }
+        }
+    }
+    return count;
+}
+
+int pdf_file::process_images(const std::string &target_path)
+{
+    prepare_font();
+
+    auto tree = pages->follow<PagesObject>();
+    int page_no = 1;
+    int count = 0;
+    for(auto it = tree->begin(); it != tree->end(); ++it, ++page_no) {
+        auto res = (*it)->operator[]<dictionary_object>("Resources");
+        if(!res) continue;
+        auto rotateobj = (*it)->operator[]<integer_number>("Rotate");
+        int rotate = 0;
+        if(rotateobj) {
+            rotate = rotateobj->get_value();
+        }
+        auto xobject = res->operator[]<dictionary_object>("XObject");
+        if(!xobject) continue;
+
+        bool need_to_process = false;
+
+        for(auto key: xobject->keys()) {
+            auto item = xobject->operator[]<indirect_object>(key)->follow<stream_object>();
+            auto subtype = item->get_dict().operator[]<name_object>("Subtype");
+            if(subtype && subtype->get_value() == "Image") {
+                std::stringstream ss;
+                ss.fill('0');
+                ss << "page" << std::setw(4) << page_no;
+                std::filesystem::path path_jpg(target_path);
+                std::filesystem::path path_png(target_path);
+                path_jpg /= ss.str() + "_" + key + ".jpg";
+                path_png /= ss.str() + "_" + key + ".png";
+                std::string jsonname;
+                if(std::filesystem::exists(path_jpg)) {
+                    jsonname = path_jpg.string() + ".json";
+                    if(!std::filesystem::exists(jsonname)) {
+                        continue;
+                    }
+                }
+                else if(std::filesystem::exists(path_png)) {
+                    jsonname = path_png.string() + ".json";
+                    if(!std::filesystem::exists(jsonname)) {
+                        continue;
+                    }
+                }
+                else {
+                    continue;
+                }
+
+                auto box = read_boxes(jsonname);
+                if(box.size() == 0) {
+                    std::cerr << "OCR json load failed: " << jsonname << std::endl;
+                }
+                
+                need_to_process = true;
+                break;
+            }
+        }
+
+        if(!need_to_process) continue;
+        
+        auto content = (*it)->operator[]<stream_object>("Contents");
+        if(content) {
+            auto striped_stream = remove_transparent_text(content->get_stream());
+            content = std::make_shared<stream_object>(content->get_dict(), striped_stream);
+        }
+        else {
+            auto content_array = (*it)->operator[]<array_object>("Contents");
+            if(!content_array) return false;
+
+            std::vector<uint8_t> stream;
+            dictionary_object dict;
+            for(int i = 0; i < content_array->size(); i++) {
+                auto p = content_array->operator[]<stream_object>(i);
+                if(p) {
+                    std::copy(p->get_stream().begin(), p->get_stream().end(), std::back_inserter(stream));
+                }
+                dict = p->get_dict();
+            }
+
+            auto striped_stream = remove_transparent_text(stream);
+            content = std::make_shared<stream_object>(dict, striped_stream);
+        }
+        if(!content) continue;
+
+        auto newObj = add_object(content);
+        (*it)->add("Contents", newObj);
+
+        for(auto key: xobject->keys()) {
+            auto item = xobject->operator[]<stream_object>(key);
+            auto subtype = item->get_dict().operator[]<name_object>("Subtype");
+            if(subtype && subtype->get_value() == "Image") {
+                std::stringstream ss;
+                ss.fill('0');
+                ss << "page" << std::setw(4) << page_no;
+                std::filesystem::path path_jpg(target_path);
+                std::filesystem::path path_png(target_path);
+                path_jpg /= ss.str() + "_" + key + ".jpg";
+                path_png /= ss.str() + "_" + key + ".png";
+                std::string jsonname;
+                if(std::filesystem::exists(path_jpg)) {
+                    jsonname = path_jpg.string() + ".json";
+                    if(!std::filesystem::exists(jsonname)) {
+                        continue;
+                    }
+                }
+                else if(std::filesystem::exists(path_png)) {
+                    jsonname = path_png.string() + ".json";
+                    if(!std::filesystem::exists(jsonname)) {
+                        continue;
+                    }
+                }
+                else {
+                    continue;
+                }
+
+                auto box = read_boxes(jsonname);
+                if(box.size() == 0) {
+                    std::cerr << "OCR json load failed: " << jsonname << std::endl;
+                }
+
+                int width = item->get_dict().operator[]<integer_number>("Width")->get_value();
+                int height = item->get_dict().operator[]<integer_number>("Height")->get_value();
+
+                std::cout << page_no << ":" << key << " size:" << width << " x " << height << std::endl;
+                if(add_image(*it, key, width, height, rotate, box)) {
+                    count++;
+                }
+            }
+        }
+    }
+    return count;
+}
+
+void rotate90(float &x, float &y, int rotate)
+{
+    while(rotate >= 360) {
+        rotate -= 360;
+    }
+    while(rotate < 0) {
+        rotate += 360;
+    }
+
+    if(rotate == 0) {
+    }
+    else if(rotate == 90) {
+        auto cx = -y;
+        auto cy = -x;
+        x = cx;
+        y = cy;
+    }
+    else if(rotate == 180) {
+        auto cx = -x;
+        auto cy = -y;
+        x = cx;
+        y = cy;
+    }
+    else if(rotate == 270) {
+        auto cx = y;
+        auto cy = -x;
+        x = cx;
+        y = cy;
+    }
+}
+
+
+void rotate90(float &x, float &y, float &w, float &h, float imwidth, float imheight, int rotate, Orientation angle)
+{
+    while(rotate >= 360) {
+        rotate -= 360;
+    }
+    while(rotate < 0) {
+        rotate += 360;
+    }
+
+    y = imheight - y;
+
+    if(angle == up) {
+    }
+    else if(angle == right) {
+        auto cx = y;
+        auto cy = imheight - x;
+        x = cx;
+        y = cy;
+        std::swap(w, h);
+    }
+    else if(angle == down) {
+        auto cx = imwidth - x;
+        auto cy = imheight - y;
+        x = cx;
+        y = cy;
+    }
+    else if(angle == left) {
+        auto cx = imheight - y;
+        auto cy = x;
+        x = cx;
+        y = cy;
+        std::swap(w, h);
+    }
+    else if(angle == upMirrored) {
+        auto cx = -x;
+        auto cy = y;
+        x = cx;
+        y = cy;
+    }
+    else if(angle == downMirrored) {
+        auto cx = x;
+        auto cy = -y;
+        x = cx;
+        y = cy;
+    }
+    else if(angle == rightMirrored) {
+        auto cx = -y;
+        auto cy = -x;
+        x = cx;
+        y = cy;
+        std::swap(w, h);
+    }
+    else if(angle == leftMirrored) {
+        auto cx = y;
+        auto cy = x;
+        x = cx;
+        y = cy;
+        std::swap(w, h);
+    }
+
+    if(rotate == 0) {
+    }
+    else if(rotate == 90) {
+        y = imheight - y;
+        auto cx = y;
+        auto cy = x;
+        x = cx;
+        y = cy;
+        std::swap(w, h);
+    }
+    else if(rotate == 180) {
+        auto cx = imwidth - x;
+        auto cy = imheight - y;
+        x = cx;
+        y = cy;
+    }
+    else if(rotate == 270) {
+        y = imheight - y;
+        auto cx = imwidth - y;
+        auto cy = imheight - x;
+        x = cx;
+        y = cy;
+        std::swap(w, h);
+    }
+}
+
+std::vector<uint8_t> get_content(std::shared_ptr<PageObject> page)
+{
+    auto content = page->operator[]<stream_object>("Contents");
+    if(content) {
+        return content->get_stream();
+    }
+    else {
+        auto content_array = page->operator[]<array_object>("Contents");
+        if(!content_array) return {};
+
+        std::vector<uint8_t> stream;
+        for(int i = 0; i < content_array->size(); i++) {
+            auto p = content_array->operator[]<stream_object>(i);
+            if(p) {
+                std::copy(p->get_stream().begin(), p->get_stream().end(), std::back_inserter(stream));
+            }
+        }
+        return stream;
+    }
+}
+
+std::vector<double> get_cm_matrix(std::vector<uint8_t> content, const std::string &key)
+{
+    content.push_back('\n');
+
+    std::string work;
+    std::vector<std::string> stack;
+    std::vector<double> cm_matrix;
+    bool found = false;
+
+    for(char c: content) {
+        if(is_whitespace(c)) {
+            if(work == "cm" && stack.size() >= 6) {
+                cm_matrix.clear();
+                for(int i = 0; i < 6; i++) {
+                    double v;
+                    std::stringstream(stack[stack.size()-6+i]) >> v;
+                    cm_matrix.push_back(v);
+                }
+                stack.clear();
+            }
+            else if(work == "Do" && stack.size() >= 1 && stack.back() == "/"+key) {
+                found = true;
+                break;
+            }
+            if(!work.empty()) {
+                if(std::find(operators.begin(), operators.end(), work) != operators.end()) {
+                    stack.clear();
+                }
+                else {
+                    stack.push_back(work);
+                }
+            }
+            work = "";
+        }
+        else {
+            work += c;
+        }
+    }
+    std::cout << cm_matrix[0] << "," << cm_matrix[1] << "," << cm_matrix[2] << "," << cm_matrix[3] << "," << std::endl;
+    std::cout << cm_matrix[4] << "," << cm_matrix[5] << std::endl;
+    return cm_matrix;
+}
+
+Orientation get_angle(const std::vector<double> &cm_matrix, float &content_w, float &content_h)
+{
+    content_w = content_h = 0;
+    if(cm_matrix.size() != 6) {
+        return up;
+    }
+
+    if(cm_matrix[1] == 0 && cm_matrix[2] == 0 && (cm_matrix[0] > 0 || cm_matrix[3] > 0)) {
+        // angle 0
+        content_w = fabs(cm_matrix[0]);
+        content_h = fabs(cm_matrix[3]);
+        if(cm_matrix[0] < 0) {
+            std::cout << "upMirrored" << std::endl;
+            return upMirrored;
+        }
+        if(cm_matrix[3] < 0) {
+            std::cout << "downMirrored" << std::endl;
+            return downMirrored;
+        }
+        std::cout << "up" << std::endl;
+        return up;
+    }
+    if(cm_matrix[1] == 0 && cm_matrix[2] == 0) {
+        // angle 180
+        content_w = fabs(cm_matrix[0]);
+        content_h = fabs(cm_matrix[3]);
+        std::cout << "down" << std::endl;
+        return down;
+    }
+    if(cm_matrix[0] == 0 && cm_matrix[3] == 0) {
+        content_w = fabs(cm_matrix[1]);
+        content_h = fabs(cm_matrix[2]);
+        if(cm_matrix[1] * cm_matrix[2] < 0) {
+            if(cm_matrix[2] < 0) {
+                std::cout << "left" << std::endl;
+                return left;
+            }
+            std::cout << "right" << std::endl;
+            return right;
+        }
+        if(cm_matrix[2] < 0) {
+            std::cout << "leftMirrored" << std::endl;
+            return leftMirrored;
+        }
+        std::cout << "rightMirrored" << std::endl;
+        return rightMirrored;
+    }
+    content_w = fabs(cm_matrix[0]);
+    content_h = fabs(cm_matrix[3]);
+    return up;
+}
+
+Orientation get_angle(std::shared_ptr<PageObject> page, const std::string &key)
+{
+    auto content = get_content(page);
+    auto cm_matrix = get_cm_matrix(content, key);
+
+    float content_w;
+    float content_h;
+    return get_angle(cm_matrix, content_w, content_h);
 }
 
 bool pdf_file::add_image(std::shared_ptr<PageObject> page, const std::string &key, int imwidth, int imheight, int rotate, const std::vector<charbox> &box)
@@ -2305,7 +2888,7 @@ bool pdf_file::add_image(std::shared_ptr<PageObject> page, const std::string &ke
         if(!parent) return false;
         parent = parent->operator[]<dictionary_object>("Parent");
         if(!parent) return false;
-        parent->operator[]<array_object>("MediaBox");
+        mediabox = parent->operator[]<array_object>("MediaBox");
     }
     double width = 0;
     double height = 0;
@@ -2323,85 +2906,38 @@ bool pdf_file::add_image(std::shared_ptr<PageObject> page, const std::string &ke
     }
 
     auto content = page->operator[]<stream_object>("Contents");
-    if(content) {
-        content = std::shared_ptr<stream_object>(new stream_object(content->get_dict(), content->get_stream()));
-    }
-    else {
-        auto content_array = page->operator[]<array_object>("Contents");
-        if(!content_array) return false;
+    auto org_stream = content->get_stream();
+    std::vector<uint8_t> stream;
+    
+    bool q_start = org_stream.empty() || org_stream.front() == 'q';
 
-        std::vector<uint8_t> stream;
-        dictionary_object dict;
-        for(int i = 0; i < content_array->size(); i++) {
-            auto p = content_array->operator[]<stream_object>(i);
-            if(p) {
-                std::copy(p->get_stream().begin(), p->get_stream().end(), std::back_inserter(stream));
-            }
-            dict = p->get_dict();
-        }
-
-        content = std::shared_ptr<stream_object>(new stream_object(dict, stream));
-    }
-
-    auto newObj = add_object(content);
-    page->add("Contents", newObj);
-    content = page->operator[]<stream_object>("Contents");
-    auto stream = content->get_stream();
-    auto striped_stream = remove_transparent_text(stream);
-
-    bool q_start = striped_stream.empty() || striped_stream.front() == 'q';
-
-    stream.clear();
     if(!q_start) {
         stream.push_back('q');
+        stream.push_back('\r');
         stream.push_back('\n');
     }
 
-    std::copy(striped_stream.begin(), striped_stream.end(), std::back_inserter(stream));
+    std::copy(org_stream.begin(), org_stream.end(), std::back_inserter(stream));
 
+    stream.push_back('\r');
     stream.push_back('\n');
     if(!q_start) {
         stream.push_back('Q');
+        stream.push_back('\r');
         stream.push_back('\n');
     }
 
-    std::string work;
-    std::vector<std::string> stack;
-    std::vector<double> cm_matrix;
-    bool found = false;
-    for(char c: stream) {
-        if(is_whitespace(c)) {
-            if(work == "cm" && stack.size() >= 6) {
-                cm_matrix.clear();
-                for(int i = 0; i < 6; i++) {
-                    double v;
-                    std::stringstream(stack[stack.size()-6+i]) >> v;
-                    cm_matrix.push_back(v);
-                }
-                stack.clear();
-            }
-            else if(work == "Do" && stack.size() >= 1 && stack.back() == "/"+key) {
-                found = true;
-                break;
-            }
-            else if(!work.empty()) {
-                stack.push_back(work);
-            }
-            work = "";
-        }
-        else {
-            work += c;
-        }
-    }
-    if(!found) return false;
+    auto cm_matrix = get_cm_matrix(stream, key);
+    if(cm_matrix.empty()) return false;
 
-    double ratio_x = cm_matrix[0] / imwidth;
-    double ratio_y = cm_matrix[3] / imheight;
-    float content_w = cm_matrix[0];
-    float content_h = cm_matrix[3];
+    float content_w;
+    float content_h;
+    auto angle = get_angle(cm_matrix, content_w, content_h);
+    double ratio_x = content_w / imwidth;
+    double ratio_y = content_h / imheight;
     double offset_x = cm_matrix[4];
     double offset_y = cm_matrix[5];
-    // std::cout << ratio_x << " " << ratio_y << " " << offset_x << " " << offset_y << std::endl;
+
     std::string font_name = "Font"+key;
 
     std::map<std::string, int> charmap;
@@ -2432,15 +2968,12 @@ bool pdf_file::add_image(std::shared_ptr<PageObject> page, const std::string &ke
             lines.emplace_back();
         }
 
-        // std::cout << b.cx << " " << b.cy << " " << b.w << " " << b.h << " " << b.text << std::endl;
         auto b2 = b;
-        rotate90(b2.cx, b2.cy, b2.w, b2.h, imwidth, imheight, rotate+additional_rotate);
+        rotate90(b2.cx, b2.cy, b2.w, b2.h, imwidth, imheight, rotate+additional_rotate, angle);
         b2.cx = b2.cx * ratio_x;
         b2.cy = b2.cy * ratio_y;
         b2.w = b2.w * ratio_x;
         b2.h = b2.h * ratio_y;
-
-        // std::cout << b2.cx << " " << b2.cy << " " << b2.w << " " << b2.h << " " << b2.text << std::endl;
 
         lines.back().emplace_back(b,b2);
     }
@@ -2495,11 +3028,11 @@ bool pdf_file::add_image(std::shared_ptr<PageObject> page, const std::string &ke
             p2xt = b.second.cx;
             p2yt = b.second.cy;
         }
+        if(std::isnan(p1x)) continue;
 
         if(b1.first.vertical) {
             s = b2.first.cy + b2.first.h / 2 - (b1.first.cy - b1.first.h / 2);
             s *= ratio_y;
-            // std::cout << "v " << p1x << "," << p1y << "," << p2x << "," << p2y <<  std::endl;
             if(std::isnan(p1x)) {
                 th = -90.0 / 180.0 * 3.14159;
             }
@@ -2510,18 +3043,14 @@ bool pdf_file::add_image(std::shared_ptr<PageObject> page, const std::string &ke
         else {
             s = b2.first.cx + b2.first.w / 2 - (b1.first.cx - b1.first.w / 2);
             s *= ratio_x;
-            // std::cout << "h " << p1x << "," << p1y << "," << p2x << "," << p2y <<  std::endl;
             if(std::isnan(p1x)) {
                 th = 0;
             }
             else {
-                th = atan2(p2y - p1y, p2x - p1x);
+                th = -atan2(p2y - p1y, p2x - p1x);
             }
         }
-        // std::cout << th / 3.14159 * 180 << std::endl;
-        // std::cout << rotate  << "," << additional_rotate << std::endl;
         th += (rotate + additional_rotate) / 180.0 * 3.14159;
-        // std::cout << th / 3.14159 * 180 << std::endl;
 
         s /= boxcount;
         if(b1.first.vertical) {
@@ -2533,12 +3062,10 @@ bool pdf_file::add_image(std::shared_ptr<PageObject> page, const std::string &ke
         float tz = s * 100;
         if(b1.first.vertical) {
             float dx = -w / 2;
-            float dy = -b1.second.h / 2;
-            float tmp1 = 0;
-            float tmp2 = 0;
-            rotate90(dx, dy, tmp1, tmp2, 0, 0, rotate+additional_rotate);
+            float dy = b1.second.h / 2;
+            rotate90(dx, dy, rotate + additional_rotate);
             float tx = p1xt + dx + offset_x;
-            float ty = content_h - (b1.second.cy + dy) + offset_y;
+            float ty = b1.second.cy + dy + offset_y;
 
             ss << h * cosf(th);
             ss << " ";
@@ -2546,24 +3073,20 @@ bool pdf_file::add_image(std::shared_ptr<PageObject> page, const std::string &ke
             ss << " ";
             ss << -h * sinf(th);
             ss << " ";
-            ss << -h * cosf(th);
+            ss << h * cosf(th);
             ss << " ";
             ss << tx;
             ss << " ";
             ss << ty;
             ss << " ";
             ss << "Tm" << std::endl;
-
-            // std::cout << tx << "," << ty << std::endl;
         }
         else {
             float dx = -b1.second.w / 2;
-            float dy = h / 4;
-            float tmp1 = 0;
-            float tmp2 = 0;
-            rotate90(dx, dy, tmp1, tmp2, 0, 0, rotate+additional_rotate);
+            float dy = -h / 2;
+            rotate90(dx, dy, rotate + additional_rotate);
             float tx = b1.second.cx + dx + offset_x;
-            float ty = content_h - (p1yt + dy) + offset_y;
+            float ty = p1yt + dy + offset_y;
        
             ss << w * cosf(th);
             ss << " ";
@@ -2578,8 +3101,6 @@ bool pdf_file::add_image(std::shared_ptr<PageObject> page, const std::string &ke
             ss << ty;
             ss << " ";
             ss << "Tm" << std::endl;
-
-            // std::cout << tx << "," << ty << std::endl;
         }
         ss << tz << " " << "Tz" << std::endl;
         ss << "<";
@@ -2600,12 +3121,12 @@ bool pdf_file::add_image(std::shared_ptr<PageObject> page, const std::string &ke
     std::copy(str.begin(), str.end(), std::back_inserter(stream));
     content->set_stream(stream);
 
-    auto type0FontObject = add_object(std::shared_ptr<object>(new dictionary_object()));
-    type0FontObject->follow<dictionary_object>()->add("Type", std::shared_ptr<object>(new name_object("Font")));
-    type0FontObject->follow<dictionary_object>()->add("Subtype", std::shared_ptr<object>(new name_object("Type0")));
-    type0FontObject->follow<dictionary_object>()->add("BaseFont", std::shared_ptr<object>(new name_object("Dummy")));
-    type0FontObject->follow<dictionary_object>()->add("Encoding", std::shared_ptr<object>(new name_object("Identity-H")));
-    type0FontObject->follow<dictionary_object>()->add("DescendantFonts", std::shared_ptr<object>(new array_object({cidFontType0Object})));
+    auto type0FontObject = add_object(std::make_shared<dictionary_object>());
+    type0FontObject->follow<dictionary_object>()->add("Type", std::make_shared<name_object>("Font"));
+    type0FontObject->follow<dictionary_object>()->add("Subtype", std::make_shared<name_object>("Type0"));
+    type0FontObject->follow<dictionary_object>()->add("BaseFont", std::make_shared<name_object>("Dummy"));
+    type0FontObject->follow<dictionary_object>()->add("Encoding", std::make_shared<name_object>("Identity-H"));
+    type0FontObject->follow<dictionary_object>()->add("DescendantFonts", std::shared_ptr<array_object>(new array_object({cidFontType0Object})));
     {
         std::stringstream ss;
         ss << "/CIDInit /ProcSet findresource begin" << std::endl;
@@ -2650,7 +3171,7 @@ bool pdf_file::add_image(std::shared_ptr<PageObject> page, const std::string &ke
 
         std::string str = ss.str();
         std::vector<uint8_t> stream(str.begin(), str.end());
-        auto toUnicodeObject = add_object(std::shared_ptr<object>(new stream_object(stream)));        
+        auto toUnicodeObject = add_object(std::make_shared<stream_object>(stream));
         type0FontObject->follow<dictionary_object>()->add("ToUnicode", toUnicodeObject);
     }
     auto fobj = page->operator[]<dictionary_object>("Resources")->operator[]<dictionary_object>("Font");
@@ -2658,7 +3179,7 @@ bool pdf_file::add_image(std::shared_ptr<PageObject> page, const std::string &ke
         fobj->add(font_name, type0FontObject);
     }
     else {
-        auto fontObject = std::shared_ptr<dictionary_object>(new dictionary_object());
+        auto fontObject = std::make_shared<dictionary_object>();
         fontObject->add(font_name, type0FontObject);
         page->operator[]<dictionary_object>("Resources")->add("Font", fontObject);
 

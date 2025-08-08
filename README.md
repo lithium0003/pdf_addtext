@@ -4,14 +4,13 @@
 Prepare jpeg image file and json file (OCR result) and make PDF file including searchable text.
 
 ## Prepare
-Install libraries, zlib openssl and libpng.
-libjpeg is as a submodule.
+Install libraries, zlib openssl libpng libjpeg and openjpeg.
 ```
 # Ubuntu
-sudo apt-get install zlib1g-dev libssl-dev libpng-dev
+sudo apt-get install zlib1g-dev libssl-dev libpng-dev libjpeg-dev libopenjp2-7-dev
 
 # Mac
-brew install zlib openssl libpng
+brew install zlib openssl libpng jpeg openjpeg
 ```
 
 And compile.

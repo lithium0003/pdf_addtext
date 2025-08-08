@@ -220,7 +220,7 @@ std::shared_ptr<json_dict> read_json_dict(std::istream &stream)
         return nullptr;
     }
 
-    return std::shared_ptr<json_dict>(new json_dict(value));
+    return std::make_shared<json_dict>(value);
 }
 
 std::shared_ptr<json_array> read_json_array(std::istream &stream)
@@ -247,7 +247,7 @@ std::shared_ptr<json_array> read_json_array(std::istream &stream)
             return nullptr;
         }
     }
-    return std::shared_ptr<json_array>(new json_array(value));
+    return std::make_shared<json_array>(value);
 }
 
 std::shared_ptr<json_string> read_json_string(std::istream &stream)
@@ -306,7 +306,7 @@ std::shared_ptr<json_string> read_json_string(std::istream &stream)
             continue;
         }
         if(c == '"') {
-            auto ret = std::shared_ptr<json_string>(new json_string(str));
+            auto ret = std::make_shared<json_string>(str);
             return ret;
         }
         if(c == '\\') {
@@ -349,7 +349,7 @@ std::shared_ptr<json_object> read_json(std::istream &stream)
                     break;
                 }
             }
-            auto ret = std::shared_ptr<json_number>(new json_number());
+            auto ret = std::make_shared<json_number>();
             std::stringstream(number) >> ret->value;
             return ret;
         }
@@ -366,17 +366,17 @@ std::shared_ptr<json_object> read_json(std::istream &stream)
                 }
             }
             if(keyword == "true") {
-                auto ret = std::shared_ptr<json_boolean>(new json_boolean());
+                auto ret = std::make_shared<json_boolean>();
                 ret->value = true;
                 return ret;
             }
             if(keyword == "false") {
-                auto ret = std::shared_ptr<json_boolean>(new json_boolean());
+                auto ret = std::make_shared<json_boolean>();
                 ret->value = false;
                 return ret;
             }
             if(keyword == "null") {
-                auto ret = std::shared_ptr<json_null>(new json_null());
+                auto ret = std::make_shared<json_null>();
                 return ret;
             }
         }

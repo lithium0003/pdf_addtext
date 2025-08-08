@@ -4,14 +4,13 @@
 jpeg画像と、OCR処理結果のjsonファイルから、透明テキストを埋め込んだPDFファイルを作成します。
 
 ## 準備
-zlib, openssl, libpng が必要です。
-libjpegは、サブモジュールとしています。
+zlib, openssl, libpng, libjpeg, openjpeg が必要です。
 ```
 # Ubuntu
-sudo apt-get install zlib1g-dev libssl-dev libpng-dev
+sudo apt-get install zlib1g-dev libssl-dev libpng-dev libjpeg-dev libopenjp2-7-dev
 
 # Mac
-brew install zlib openssl libpng
+brew install zlib openssl libpng jpeg openjpeg
 ```
 
 コンパイルします。
